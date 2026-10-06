@@ -326,3 +326,40 @@ Return only one numerical value in [0, 1]."""
 
 if __name__ == "__main__":
     print(generate_profile())
+
+
+# ----------------------------------------------------------------------
+# Strategy-conditioned persuasion rendering (RL approach 2)
+# ----------------------------------------------------------------------
+
+def render_strategy_message(
+    strategy_spec,
+    target_profile: str,
+    topic: str = "the policy",
+    stance_direction: str = "opposing",
+) -> str:
+    """Render a StrategySpec into a persuasion message via the LLM.
+
+    The LLM is frozen (not trained); it acts as a decoder from the
+    strategy space to natural language. Deterministic temperature so
+    the RL signal reflects the policy's action, not sampling noise.
+    """
+    prompt = f"""You are crafting a persuasive social-media message.
+
+Persuasion strategy:
+- Rhetorical appeal: {strategy_spec.appeal} (logos = facts/logic, pathos = emotion, ethos = credibility)
+- Tone: {strategy_spec.tone}
+- Emphasis: {strategy_spec.emphasis} (evidence = data and studies, personal_story = lived experience, social_proof = what others are doing, risk = dangers of inaction, authority = expert consensus)
+- Intensity: {strategy_spec.intensity_label} ({strategy_spec.intensity:.2f}/1.00)
+
+Target audience profile: {target_profile}
+
+Write ONE short social-media post (maximum 50 words, first person) that
+takes an {stance_direction} stance on {topic} and follows the strategy
+above as closely as possible. Do not mention the strategy explicitly.
+Return only the message."""
+    return call_llm(
+        prompt,
+        temperature=0.0,
+        max_tokens=GLOBAL_LLM_CONFIG.generation_max_tokens,
+    )

@@ -53,6 +53,12 @@ def install() -> None:
             "combined", received_message, new_post, previous_profile, updated_profile
         )
     )
+    LLM_module.render_strategy_message = (
+        lambda strategy_spec, target_profile, topic="the policy", stance_direction="opposing": (
+            f"[{strategy_spec.appeal}/{strategy_spec.tone}/{strategy_spec.emphasis}"
+            f"/{strategy_spec.intensity:.2f}] message aimed at: {target_profile[:40]}"
+        )
+    )
 
 
 def uninstall() -> None:
