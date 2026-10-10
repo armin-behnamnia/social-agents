@@ -64,6 +64,11 @@ comparable across runs — judge each run against its own baselines.
 
 ## Conclusions
 
+- **Headline: 200 PPO iterations produce no measurable training-reward
+  improvement.** The best configuration (run3) shows a small, noisy
+  (+13%) separation from baselines at *greedy eval* time, not a rising
+  learning curve. Treat this campaign as infrastructure validation
+  plus a weak positive signal, not as a demonstrated RL win.
 - **RL persuasion beats hand-crafted baselines only when the reward
   actually sees strategy quality.** Learned targeting + a full
   per-node observation + an LLM persuasiveness gate were all
@@ -82,9 +87,15 @@ comparable across runs — judge each run against its own baselines.
     Greedy eval swings (e.g. run2 @180 = 3.11 vs @200 = 2.39) confirm
     the noise level.
   - Single 30-agent-scale setting, one topic, one network topology.
-  - Training curves are nearly flat — 1 600 episodes is a tiny budget
-    for a 5400-action space; gains show up at eval time via entropy/
-    action-narrowing rather than a rising training reward.
+  - **No within-run training-reward improvement in any run** (linear
+    slopes over 200 iters: run1 −0.0004, run2 +0.0003, run3 +0.0006
+    reward/iter — i.e., flat). The run3 gain lives in the *greedy
+    eval*: +0.0024/iter slope, last-3 evals ≈ 2.21 vs 1.98 baseline,
+    but with per-eval SE ≈ 0.17 this is ~1–1.5 SE — a consistent
+    trend, not a statistically firm win. Root causes: only 80
+    transitions per PPO update against a 5400-action space, and reward
+    dominated by stochastic crowd dynamics the persuader matters
+    little to.
 
 ## Known operational issues (non-blocking)
 
