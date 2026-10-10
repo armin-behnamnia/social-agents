@@ -4,5 +4,5 @@ networkx>=3.0
 openai>=1.30
 gymnasium>=0.29
 pytest>=7.4
-# optional, for higher-quality embeddings than the built-in fallback:
-# sentence-transformers>=2.2
+# GPU RL training:
+torch>=2.0

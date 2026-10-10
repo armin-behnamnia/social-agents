@@ -48,7 +48,8 @@ class TestStrategySpace:
 class TestElitePersuaderEnv:
     def test_gym_api(self):
         env = ElitePersuaderEnv(
-            scenario=LLMScenario(agent_num=10, rng_seed=1), n_periods=4
+            scenario=LLMScenario(agent_num=10, rng_seed=1), n_periods=4,
+            obs_mode="summary",
         )
         obs, info = env.reset(seed=42)
         assert obs.shape == (OBS_DIM,)
@@ -64,7 +65,8 @@ class TestElitePersuaderEnv:
 
     def test_reward_from_persuader_events_only(self):
         env = ElitePersuaderEnv(
-            scenario=LLMScenario(agent_num=10, rng_seed=2), n_periods=3
+            scenario=LLMScenario(agent_num=10, rng_seed=2), n_periods=3,
+            obs_mode="summary",
         )
         env.reset(seed=5)
         obs, r, term, trunc, info = env.step(0)
@@ -75,7 +77,8 @@ class TestElitePersuaderEnv:
         rewards = []
         for _ in range(2):
             env = ElitePersuaderEnv(
-                scenario=LLMScenario(agent_num=10, rng_seed=3), n_periods=3
+                scenario=LLMScenario(agent_num=10, rng_seed=3), n_periods=3,
+                obs_mode="summary",
             )
             env.reset(seed=11)
             r_total = 0.0
@@ -102,7 +105,8 @@ class TestTrainer:
 
     def test_short_training_runs(self, tmp_path):
         env = ElitePersuaderEnv(
-            scenario=LLMScenario(agent_num=8, rng_seed=4), n_periods=3
+            scenario=LLMScenario(agent_num=8, rng_seed=4), n_periods=3,
+            obs_mode="summary",
         )
         cfg = TrainConfig(
             episodes=4,
@@ -120,7 +124,8 @@ class TestTrainer:
 
     def test_baseline_finite(self):
         env = ElitePersuaderEnv(
-            scenario=LLMScenario(agent_num=8, rng_seed=5), n_periods=3
+            scenario=LLMScenario(agent_num=8, rng_seed=5), n_periods=3,
+            obs_mode="summary",
         )
         assert np.isfinite(evaluate_message_bank(env))
 

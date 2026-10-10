@@ -48,8 +48,17 @@ class Simulation:
     def _init_population(self, profiles, initial_stances):
         n = self.scenario.agent_num
         self.agents: list[LLMSocialAgent] = []
+        # Spawn a per-agent RNG stream from the simulation seed so the
+        # acceptance gates remain reproducible AND thread-safe under
+        # parallel rollouts (a shared Generator is not).
+        seed_seq = np.random.SeedSequence(self.scenario.rng_seed)
+        child_seeds = seed_seq.spawn(n)
         for i in range(n):
-            agent = LLMSocialAgent(i, scenario=self.scenario, rng=self.rng)
+            agent = LLMSocialAgent(
+                i,
+                scenario=self.scenario,
+                rng=np.random.default_rng(child_seeds[i]),
+            )
             self.agents.append(agent)
 
         if profiles is not None:

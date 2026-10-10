@@ -1,3 +1,20 @@
+# --- secrets (NEVER commit) ---
+.env
+*.env
+!.env.example
+
+# --- caches / artifacts ---
 .llm_cache/
 .pytest_cache/
-.venv
+.venv/
+__pycache__/
+*.pyc
+
+# --- experiment outputs ---
+output/
+logs/
+runs/
+models/
+*.npz
+*.pt
+*.ckpt

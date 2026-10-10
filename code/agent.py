@@ -49,6 +49,10 @@ class LLMSocialAgent(NetworkAgent):
         rng: np.random.Generator | None = None,
     ):
         self.scenario = scenario
+        # Per-agent RNG (thread-safe): numpy Generators are NOT
+        # thread-safe when shared, and parallel rollouts run one
+        # episode per thread. Seeds derive from the simulation seed
+        # so runs stay reproducible.
         self._rng = rng or np.random.default_rng()
         super().__init__(agent_id, neighbors)
 
@@ -81,6 +85,9 @@ class LLMSocialAgent(NetworkAgent):
 
         # Interaction
         self.influencer = None
+        # LLM-judged persuasiveness multiplier for the agent's current
+        # post (RL persuader only; 1.0 = paper's original dynamics).
+        self.message_persuasiveness: float = 1.0
 
         self.exposure_count: int = 0
         self.num_infected_neighbors: int = 0
@@ -516,6 +523,16 @@ class LLMSocialAgent(NetworkAgent):
             + self.scenario.alpha_stance * stance_similarity
             + self.scenario.alpha_degree * degree_similarity
         )
+
+        # 6. Optional message persuasiveness multiplier (RL persuader):
+        #    LLM-judged fit of the message to this target persona.
+        #    Defaults to 1.0 (paper's original dynamics) for crowd
+        #    agents; set on the persuader by ElitePersuaderEnv.
+        persuasiveness = getattr(
+            source_agent, "message_persuasiveness", 1.0
+        )
+        if persuasiveness != 1.0:
+            influence_prob *= float(persuasiveness)
 
         return float(np.clip(influence_prob, 0.0, 1.0))
 

@@ -31,6 +31,27 @@ class LLMError(RuntimeError):
     pass
 
 
+# Shared, thread-safe OpenAI client (httpx pools connections).
+_client_lock = __import__("threading").Lock()
+_client: object | None = None
+
+
+def _get_client():
+    global _client
+    with _client_lock:
+        if _client is not None:
+            return _client
+        from openai import OpenAI
+
+        cfg = GLOBAL_LLM_CONFIG
+        _client = OpenAI(
+            base_url=cfg.base_url,
+            api_key=cfg.api_key,
+            timeout=cfg.timeout_seconds,
+        )
+        return _client
+
+
 def _cache_path(cache_dir: Path, key: str) -> Path:
     return cache_dir / f"{key}.json"
 
@@ -77,17 +98,13 @@ def call_llm(
 
     # Imported lazily so tests / analysis can run without the openai package.
     try:
-        from openai import OpenAI
+        from openai import OpenAI  # noqa: F401 - availability check
     except ImportError as exc:  # pragma: no cover
         raise LLMError(
             "openai package not installed; install requirements.txt"
         ) from exc
 
-    client = OpenAI(
-        base_url=cfg.base_url,
-        api_key=cfg.api_key,
-        timeout=cfg.timeout_seconds,
-    )
+    client = _get_client()
 
     messages = []
     if system_prompt:
@@ -108,9 +125,11 @@ def call_llm(
                 raise LLMError("LLM returned empty content")
             content = str(content).strip()
             if cache:
-                _cache_path(cache_dir_path, key).write_text(
-                    json.dumps({"content": content})
-                )
+                # atomic write: tmp file + rename (thread-safe)
+                final = _cache_path(cache_dir_path, key)
+                tmp = final.with_suffix(".tmp")
+                tmp.write_text(json.dumps({"content": content}))
+                tmp.replace(final)
             return content
         except Exception as exc:  # noqa: BLE001 - transient API errors
             last_error = exc
@@ -343,6 +362,10 @@ def render_strategy_message(
     The LLM is frozen (not trained); it acts as a decoder from the
     strategy space to natural language. Deterministic temperature so
     the RL signal reflects the policy's action, not sampling noise.
+
+    Results are cached on disk keyed by (strategy, profile, topic):
+    the profile pool is finite, so the cache quickly covers the full
+    (strategy x target) matrix and renders become instant.
     """
     prompt = f"""You are crafting a persuasive social-media message.
 
@@ -363,3 +386,41 @@ Return only the message."""
         temperature=0.0,
         max_tokens=GLOBAL_LLM_CONFIG.generation_max_tokens,
     )
+
+
+_PERSUASIVENESS_PROMPT = """You are modeling how a specific social-media user reacts to a persuasive message.
+
+User profile: {profile}
+
+Message they received: {message}
+
+Consider this user's personality, interests, and how they respond to the message's tone, appeal, and emphasis. Rate how persuasive this message is FOR THIS SPECIFIC USER on a scale from 0 to 10:
+- 0 = actively off-putting, the user dismisses it or reacts against it
+- 5 = neutral, neither compelling nor off-putting
+- 10 = extremely compelling, perfectly matched to this user
+
+Return only the number."""
+
+
+def judge_persuasiveness(message: str, target_profile: str) -> float:
+    """LLM-judged persuasiveness of a message for a specific persona.
+
+    Returns a score in [0, 1]. Cached (deterministic input key), so
+    repeated (message, profile) pairs cost nothing. This operational-
+    izes the paper's message-dependent stance transition T(s, m, x):
+    the frozen-LLM judges how well the strategy-encoded message fits
+    the target persona, giving the RL policy a real signal to optimize.
+    """
+    prompt = _PERSUASIVENESS_PROMPT.format(
+        profile=target_profile, message=message
+    )
+    raw = call_llm(
+        prompt,
+        temperature=GLOBAL_LLM_CONFIG.inference_temperature,
+        max_tokens=GLOBAL_LLM_CONFIG.inference_max_tokens,
+    )
+    match = _NUMBER_RE.search(raw)
+    if match:
+        value = float(match.group())
+        return min(max(value / 10.0, 0.0), 1.0)
+    return 0.5  # unparseable judge output: neutral

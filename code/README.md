@@ -7,38 +7,61 @@ shifts from observable evidence (generated posts, profile updates).
 
 ## Layout
 
-```
+```text
 code/
-├── config.py        # LLM + scenario configuration (was hardcoded)
-├── LLM_module.py    # LLM layer: retries, cache, numeric parsing
-├── tools.py         # embeddings (sentence-transformers or fallback)
-├── base_agent.py    # minimal NetworkAgent stand-in (no Melodie dep)
-├── agent.py         # LLMSocialAgent: stance transitions, events
-├── network.py       # topology builders + centralities
-├── scenario.py      # scenario dataclass
-├── simulation.py    # engine: init, seeding, diffusion loop
-├── env.py           # Gymnasium wrapper (RL entry point)
-├── tests/           # pytest suite (bugfix regression tests)
+├── config.py         # LLM + embedding + scenario config (.env secrets)
+├── LLM_module.py     # LLM layer: retries, cache, numeric parsing
+├── tools.py          # embeddings via external API (hash fallback)
+├── base_agent.py     # minimal NetworkAgent stand-in (no Melodie dep)
+├── agent.py          # LLMSocialAgent: stance transitions, events
+├── network.py        # topology builders + centralities
+├── profiles.py       # synthetic or LLM persona generation
+├── scenario.py       # scenario dataclass
+├── simulation.py     # engine: init, seeding, diffusion loop
+├── strategy.py       # 180-strategy persuasion space
+├── rl_env.py         # ElitePersuaderEnv (learned target + strategy)
+├── env.py            # Gymnasium wrapper (message-bank baseline env)
+├── trainer.py        # numpy REINFORCE trainer (CPU baseline)
+├── torch_trainer.py  # GPU PPO trainer (action masking, GAE)
+├── train_persuader.py# training CLI (mock / live modes)
+├── offline.py        # deterministic mock LLM backend
+├── tests/            # pytest suite (46 tests)
 └── requirements.txt
 ```
 
 ## Setup
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r code/requirements.txt
+# conda env with torch (GPU) is expected at /opt/conda
+python -m pip install -r code/requirements.txt
 ```
 
-LLM backend defaults to a local Ollama server (`llama3.1:latest`);
-override with env vars `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`.
+LLM + embeddings are **external APIs** (no local models). Configure via
+`.env` (never committed):
+
+```bash
+cp .env.example .env
+# then edit .env:
+#   LLM_BASE_URL=...      # OpenAI-compatible endpoint
+#   LLM_API_KEY=...       # your key
+#   LLM_MODEL=...         # chat model
+#   EMBEDDING_MODEL=...   # optional, defaults to text-embedding-3-small
+```
 
 ## Run
 
 ```bash
-# tests (no LLM required — mocks)
-.venv/bin/python -m pytest code/tests -q
+# tests (no API needed — mock backend)
+python -m pytest code/tests -q
 
-# full simulation (requires a live LLM backend)
-.venv/bin/python -c "
+# GPU PPO training — pipeline validation (mock LLM, no API)
+python -m code.train_persuader --mode mock --iterations 120
+
+# GPU PPO training — live LLM (requires .env credentials)
+python -m code.train_persuader --mode live --iterations 200 --agent-num 50
+
+# full simulation (requires live LLM backend)
+python -c "
 from code.simulation import Simulation, generate_profiles
 from code.scenario import LLMScenario
 profiles = generate_profiles(50)
@@ -46,20 +69,11 @@ sim = Simulation(scenario=LLMScenario(agent_num=50), profiles=profiles)
 for s in sim.run(20): print(s)
 sim.save_events('output')
 "
-
-# RL environment smoke test
-.venv/bin/python -c "
-from code.env import LatentStanceDiffusionEnv
-from code.scenario import LLMScenario
-env = LatentStanceDiffusionEnv(scenario=LLMScenario(agent_num=10), n_periods=5)
-obs, _ = env.reset(seed=1)
-done = False
-while not done:
-    obs, r, term, trunc, info = env.step(env.action_space.sample())
-    done = term or trunc
-print(info)
-"
 ```
+
+Outputs land in `output/ppo/<run>/`: `policy.pt` (checkpoint),
+`training_log.json` (per-iteration metrics), `results.json` (final
+learned vs random vs heuristic baseline comparison).
 
 ## Key behavioral notes
 
