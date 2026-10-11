@@ -59,6 +59,11 @@ def install() -> None:
             f"/{strategy_spec.intensity:.2f}] message aimed at: {target_profile[:40]}"
         )
     )
+    LLM_module.judge_persuasiveness = (
+        lambda message, target_profile: _hash01(
+            "judge", message, target_profile
+        )
+    )
 
 
 def uninstall() -> None:

@@ -21,13 +21,22 @@ Legacy mode: `target_selection != "learned"` keeps the original
 frozen-heuristic behavior with Discrete(N_STRATEGIES) actions.
 
 Observation modes:
-- "matrix" (default, learnable): (agent_num, 14) per-agent feature
+- "matrix" (default, learnable): (agent_num, 16) per-agent feature
   matrix — profile-embedding pool (8d), degree centrality,
-  betweenness, exposure, stance proxy, is-candidate, is-adopted.
-  Combined with a pointer/attention policy this makes BOTH the target
-  choice and the strategy choice learnable (the pooled 13-d summary
-  cannot distinguish candidates, so target selection was unlearnable).
+  betweenness, exposure, stance proxy, is-candidate, is-adopted,
+  is-persuader, is-acting. Combined with the compound action this
+  makes BOTH the target choice and the strategy choice learnable.
 - "summary" (legacy): 13-d mean-pooled vector.
+- "pair" (for target_selection="random_neighbor"): 26-d vector of
+  [acting-persuader features (13d) ‖ current random-neighbor target
+  features (13d)]; the policy only chooses the strategy.
+
+Target selection modes:
+- "learned": compound action (target x strategy), action mask.
+- "random_neighbor": the env draws a random eligible neighbor of each
+  persuader at period start; the action is only the strategy index
+  (Discrete(N_STRATEGIES)). Matches the protocol: each agent talks to
+  one of its few neighbors decided by chance, content by policy.
 """
 
 from __future__ import annotations
@@ -44,8 +53,8 @@ from .strategy import N_STRATEGIES, index_to_strategy
 _PROFILE_EMB_DIM = 8
 OBS_DIM = _PROFILE_EMB_DIM + 5
 # matrix-mode per-agent features: emb(8) + deg + betw + exposure +
-# stance proxy + is_candidate + is_adopted
-PER_AGENT_DIM = _PROFILE_EMB_DIM + 6
+# stance proxy + is_candidate + is_adopted + is_persuader + is_acting
+PER_AGENT_DIM = _PROFILE_EMB_DIM + 8
 
 
 class ElitePersuaderEnv:
@@ -76,6 +85,7 @@ class ElitePersuaderEnv:
         persuade_all_neighbors: bool = False,
         obs_mode: str = "matrix",
         persuader_persuasiveness: bool = True,
+        n_persuaders: int = 1,
     ):
         self.scenario = scenario or LLMScenario()
         self.n_periods = n_periods
@@ -86,6 +96,18 @@ class ElitePersuaderEnv:
         self.shaping_accept_bonus = shaping_accept_bonus
         self.topic = topic
         self.target_selection = target_selection
+        # RL persuaders are seeded agents 0..n_persuaders-1; the rest of
+        # the population is the frozen crowd. One SHARED policy acts for
+        # all of them (parameter sharing): each period every persuader
+        # picks its own (target x strategy) — see step().
+        if n_persuaders < 1 or n_persuaders >= self.scenario.agent_num:
+            raise ValueError(
+                f"n_persuaders={n_persuaders} must be in "
+                f"[1, {self.scenario.agent_num})"
+            )
+        self.n_persuaders = int(n_persuaders)
+        self.persuader_ids = tuple(range(self.n_persuaders))
+        self._persuader_index = {pid: i for i, pid in enumerate(self.persuader_ids)}
         self.synthetic_profiles = synthetic_profiles
         self.profile_seed = profile_seed
         # If True, the rendered message is delivered to the chosen
@@ -101,13 +123,28 @@ class ElitePersuaderEnv:
         self._persuasiveness_cache: dict[int, float] = {}
 
         self._learned_targets = target_selection == "learned"
+        self._random_neighbor = target_selection == "random_neighbor"
         n_actions = (
             self.scenario.agent_num * N_STRATEGIES
             if self._learned_targets
             else N_STRATEGIES
         )
         self.action_space = spaces.Discrete(n_actions)
-        if self.obs_mode == "matrix":
+        # strategy-only obs for random_neighbor mode: self ‖ target
+        self._pair_dim = 2 * OBS_DIM
+        if obs_mode == "pair" and not self._random_neighbor:
+            raise ValueError(
+                'obs_mode="pair" requires target_selection='
+                '"random_neighbor"'
+            )
+        if obs_mode == "pair":
+            self.observation_space = spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(self._pair_dim,),
+                dtype=np.float32,
+            )
+        elif self.obs_mode == "matrix":
             self.observation_space = spaces.Box(
                 low=-np.inf,
                 high=np.inf,
@@ -123,6 +160,9 @@ class ElitePersuaderEnv:
         self._step_count = 0
         self._episode_seed: int | None = None
         self._prev_mean_stance: float = 0.0
+        self._targets_rng = np.random.default_rng()
+        # current random-neighbor assignment (per persuader index)
+        self._pending_targets: list = []
 
     # ------------------------------------------------------------------
     # helpers
@@ -146,6 +186,7 @@ class ElitePersuaderEnv:
             topology=self.topology,
             initial_stances=None,
             profiles=profiles,
+            seed_ids=self.persuader_ids,
         )
 
     def _candidate_targets(self):
@@ -161,7 +202,9 @@ class ElitePersuaderEnv:
         eligible = [
             a
             for a in self._sim.agents
-            if a.id != 0 and a.preference_state == 0 and a.stance > 0
+            if a.id not in self.persuader_ids
+            and a.preference_state == 0
+            and a.stance > 0
         ]
         if not eligible:
             return []
@@ -208,21 +251,87 @@ class ElitePersuaderEnv:
         ]
         return np.concatenate([pooled, np.asarray(features, dtype=np.float32)])
 
-    def _observation(self) -> np.ndarray:
+    def _draw_pending_targets(self) -> None:
+        """random_neighbor mode: draw one eligible neighbor per
+        persuader for the upcoming period (uniformly at random among
+        its positive-stance, non-adopted, non-persuader neighbors).
+        Falls back to any eligible agent when the neighborhood has
+        dried up, or to None (persuader idles) if nothing is eligible.
+        """
         assert self._sim is not None
+        self._pending_targets = []
+        eligible_all = [
+            a for a in self._sim.agents
+            if a.id not in self.persuader_ids
+            and a.preference_state == 0
+            and a.stance > 0
+        ]
+        for pid in self.persuader_ids:
+            me = self._sim.agents[pid]
+            options = [a for a in eligible_all if a.id in me.neighbors]
+            if not options:
+                options = eligible_all
+            chosen = (
+                options[int(self._targets_rng.integers(len(options)))]
+                if options else None
+            )
+            self._pending_targets.append(chosen)
+
+    def observation(self, actor: int | None = None) -> np.ndarray:
+        """Public observation accessor.
+
+        actor: index into self.persuader_ids of the persuader currently
+        deciding; the returned obs marks/contains that persuader's own
+        context (is_acting column in matrix mode; self‖target pair in
+        pair mode) so the shared policy can condition each actor's
+        choice on its own identity.
+        """
+        return self._observation(actor=actor)
+
+    def _observation(self, actor: int | None = None) -> np.ndarray:
+        assert self._sim is not None
+        if self.obs_mode == "pair":
+            return self._observation_pair(actor)
         if self.obs_mode == "matrix":
-            return self._observation_matrix()
+            return self._observation_matrix(actor=actor)
         return self._observation_summary()
 
-    def _observation_matrix(self) -> np.ndarray:
+    def _observation_pair(self, actor: int | None) -> np.ndarray:
+        """random_neighbor mode: [persuader features ‖ target features].
+
+        actor is REQUIRED (index into persuader_ids); the target half
+        describes this period's randomly drawn neighbor. If the
+        persuader idles (no pending target), the target half is zeros.
+        """
+        idx = actor if actor is not None else 0
+        me = self._sim.agents[self.persuader_ids[idx]]
+        target = (
+            self._pending_targets[idx]
+            if idx < len(self._pending_targets)
+            else None
+        )
+        self_feats = self._target_features(me)
+        tgt_feats = (
+            self._target_features(target)
+            if target is not None
+            else np.zeros(OBS_DIM, dtype=np.float32)
+        )
+        return np.concatenate([self_feats, tgt_feats]).astype(np.float32)
+
+    def _observation_matrix(self, actor: int | None = None) -> np.ndarray:
         """(n_agents, PER_AGENT_DIM) per-agent feature matrix.
 
         Row order = agent id, so action index pos k refers to row k of
         this matrix: the policy can attribute credit to the exact node
-        it selected. is_candidate marks the currently reachable set.
+        it selected. is_candidate marks the currently reachable set;
+        is_persuader / is_acting mark the RL-controlled seeds and the
+        one currently deciding.
         """
         targets = self._candidate_targets()
         candidate_ids = {a.id for a in targets}
+        acting_id = (
+            self.persuader_ids[actor] if actor is not None else None
+        )
         rows = []
         for a in self._sim.agents:
             if a.embedding is not None:
@@ -240,6 +349,8 @@ class ElitePersuaderEnv:
                 a.support_probability,  # observable stance proxy
                 1.0 if a.id in candidate_ids else 0.0,
                 1.0 if a.preference_state == 1 else 0.0,
+                1.0 if a.id in self.persuader_ids else 0.0,
+                1.0 if a.id == acting_id else 0.0,
             ]
             rows.append(
                 np.concatenate([pooled, np.asarray(feats, dtype=np.float32)])
@@ -286,6 +397,7 @@ class ElitePersuaderEnv:
         new._step_count = 0
         new._episode_seed = None
         new._prev_mean_stance = 0.0
+        new._pending_targets = []
         return new
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
@@ -296,17 +408,19 @@ class ElitePersuaderEnv:
         self._step_count = 0
         self._prev_mean_stance = float(self._sim.stances().mean())
         self._last_events_len = len(self._sim.diffusion_events)
+        self._targets_rng = np.random.default_rng(self._episode_seed)
+        if self._random_neighbor:
+            self._draw_pending_targets()
         targets = self._candidate_targets()
         info = {"action_mask": self._action_mask(targets), "candidates": targets}
         return self._observation(), info
 
-    def step(self, action):
-        assert self._sim is not None, "call reset() first"
-        sim = self._sim
+    def _decode_action(self, action, targets, persuader_idx: int = 0):
+        """Action -> (target agent, strategy index).
 
-        targets = self._candidate_targets()
-
-        # 0. decode the compound action (learned mode) -------------------
+        learn: compound action. random_neighbor: strategy only; the
+        target is this period's pending random neighbor.
+        """
         if self._learned_targets:
             action = int(action)
             agent_id, strategy_idx = divmod(action, N_STRATEGIES)
@@ -314,91 +428,167 @@ class ElitePersuaderEnv:
             if chosen not in targets:
                 # masked-out action: fall back to first candidate
                 chosen = targets[0]
+        elif self._random_neighbor:
+            strategy_idx = int(action)
+            chosen = (
+                self._pending_targets[persuader_idx]
+                if persuader_idx < len(self._pending_targets)
+                else None
+            )
         else:
             strategy_idx = int(action)
             chosen = targets[0] if targets else None
+        return chosen, int(strategy_idx)
 
-        # 1. render the strategy into a message (frozen LLM decoder)
-        spec = index_to_strategy(int(strategy_idx))
-        target_profile = chosen.profile if chosen is not None else ""
-        message = LLM_module.render_strategy_message(
-            spec,
-            target_profile=target_profile,
-            topic=self.topic,
-            stance_direction="opposing",
-        )
+    def _judge_score(self, message: str, target) -> float:
+        """LLM persuasiveness score, cached by (message, profile).
 
-        # 2. deliver the message from the persuader (seed agent 0)
-        persuader = sim.agents[0]
-        persuader.post = message
-        persuader.post_embedding = persuader._get_embedding(message)
-        if self.persuader_persuasiveness and chosen is not None:
-            score = self._persuasiveness_cache.get((id(chosen), message))
-            if score is None:
-                try:
-                    score = LLM_module.judge_persuasiveness(
-                        message, chosen.profile
-                    )
-                    self._persuasiveness_cache[(id(chosen), message)] = score
-                except Exception:  # noqa: BLE001 - judge is optional
-                    score = 1.0
-            persuader.message_persuasiveness = score if score else 1.0
-        else:
-            persuader.message_persuasiveness = 1.0
-
-        # 3. advance one diffusion period
-        events_before = len(sim.diffusion_events)
-        if self.persuade_all_neighbors or chosen is None:
-            # broadcast: default diffusion processes persuader's post
-            sim.step()
-        else:
-            # surgical: inject the chosen target into the persuader's
-            # address list for this period, then run the normal period
-            # (all other active sources still operate)
-            original_neighbors = persuader._neighbors
-            persuader._neighbors = {chosen.id}
+        Keyed on content, not object identity, so the in-memory cache
+        (and the disk cache inside call_llm) survives episode resets
+        and is shared across rollout threads.
+        """
+        if not self.persuader_persuasiveness or target is None:
+            return 1.0
+        key = (message, target.profile)
+        score = self._persuasiveness_cache.get(key)
+        if score is None:
             try:
-                sim.step()
-            finally:
-                persuader._neighbors = original_neighbors
+                score = LLM_module.judge_persuasiveness(
+                    message, target.profile
+                )
+            except Exception:  # noqa: BLE001 - judge is optional
+                score = 1.0
+            self._persuasiveness_cache[key] = score
+        return score if score else 1.0
+
+    def step(self, action):
+        """Advance one diffusion period.
+
+        action: with n_persuaders == 1 a single int (legacy); with
+        n_persuaders > 1 a sequence of n_persuaders ints — one compound
+        (target x strategy) action per persuader. All persuaders'
+        messages are delivered simultaneously (one sim.step), so
+        interactions within a period don't affect each other.
+
+        Returns (obs, reward, terminated, truncated, info); reward is a
+        float for one persuader or an np.ndarray of per-persuader
+        rewards otherwise. The shared cascade term is added to every
+        persuader's component (cooperative team reward).
+        """
+        assert self._sim is not None, "call reset() first"
+        sim = self._sim
+        single = self.n_persuaders == 1
+        if single:
+            actions = [int(action)]
+        else:
+            actions = [int(a) for a in action]
+            if len(actions) != self.n_persuaders:
+                raise ValueError(
+                    f"expected {self.n_persuaders} actions, "
+                    f"got {len(actions)}"
+                )
+
+        targets = self._candidate_targets()
+
+        # 1. per persuader: decode action, render message, deliver -----
+        action_records = []
+        for pidx, (pid, act) in enumerate(zip(self.persuader_ids, actions)):
+            persuader = sim.agents[pid]
+            chosen, strategy_idx = self._decode_action(
+                act, targets, persuader_idx=pidx
+            )
+            spec = index_to_strategy(strategy_idx)
+            target_profile = chosen.profile if chosen is not None else ""
+            message = LLM_module.render_strategy_message(
+                spec,
+                target_profile=target_profile,
+                topic=self.topic,
+                stance_direction="opposing",
+            )
+            persuader.post = message
+            persuader.post_embedding = persuader._get_embedding(message)
+            score = self._judge_score(message, chosen)
+            persuader.message_persuasiveness = score
+            action_records.append(
+                {
+                    "persuader": pid,
+                    "target": chosen.id if chosen is not None else None,
+                    "strategy_index": strategy_idx,
+                    "strategy": spec,
+                    "message": message,
+                    "persuasiveness": score,
+                }
+            )
+
+        # 2. advance one diffusion period --------------------------------
+        events_before = len(sim.diffusion_events)
+        restrict = not self.persuade_all_neighbors
+        original_neighbors = {}
+        if restrict:
+            # surgical: each persuader addresses only its chosen target
+            # this period; all other active sources (crowd) still work
+            for pid, rec in zip(self.persuader_ids, action_records):
+                persuader = sim.agents[pid]
+                original_neighbors[pid] = persuader._neighbors
+                if rec["target"] is not None:
+                    persuader._neighbors = {rec["target"]}
+                elif self._random_neighbor:
+                    # idle: no eligible neighbor this period -> the
+                    # persuader's post reaches nobody
+                    persuader._neighbors = set()
+        try:
+            sim.step()
+        finally:
+            for pid, nb in original_neighbors.items():
+                sim.agents[pid]._neighbors = nb
         self._step_count += 1
 
-        # 4. compute reward from ground truth
+        # 3. compute per-persuader rewards from ground truth ------------
         events = sim.diffusion_events[events_before:]
-        reward = 0.0
-        n_accept = 0
+        rewards = np.zeros(self.n_persuaders, dtype=np.float64)
+        n_accept = np.zeros(self.n_persuaders, dtype=int)
         for event in events:
-            if event["source_agent"] == 0:
+            src = event["source_agent"]
+            if src in self._persuader_index:
+                i = self._persuader_index[src]
                 delta = event["target_delta_stance"]
-                reward += -delta  # negative delta = shift toward persuader
+                rewards[i] += -delta  # negative delta = toward persuader
                 if event["behavior"] == "accept":
-                    n_accept += 1
-        reward += self.shaping_accept_bonus * n_accept
-        reward -= self.message_cost
+                    n_accept[i] += 1
+        rewards += self.shaping_accept_bonus * n_accept
+        rewards -= self.message_cost
 
-        # optional cascade credit: discounted population movement
+        # optional cascade credit: discounted population movement,
+        # shared by the whole persuader team (cooperative reward)
         if self.reward_cascade_discount > 0:
             mean_stance = float(sim.stances().mean())
-            reward += self.reward_cascade_discount * (
+            cascade = self.reward_cascade_discount * (
                 self._prev_mean_stance - mean_stance
             )
+            rewards += cascade
             self._prev_mean_stance = mean_stance
 
         targets_after = self._candidate_targets()
-        obs = self._observation()
         terminated = self._step_count >= self.n_periods
+        if self._random_neighbor and not terminated:
+            self._draw_pending_targets()
+        obs = self._observation()
         info = {
             "period": sim.period,
             "mean_stance": float(sim.stances().mean()),
             "n_adopted": int(sum(a.preference_state == 1 for a in sim.agents)),
             "n_persuader_events": len(
-                [e for e in events if e["source_agent"] == 0]
+                [e for e in events if e["source_agent"] in self._persuader_index]
             ),
-            "n_accept": n_accept,
-            "message": message,
-            "strategy": spec,
-            "chosen_target": chosen.id if chosen is not None else None,
+            "n_accept": int(n_accept.sum()),
+            "persuader_actions": action_records,
+            "period_events": events,
+            # legacy single-persuader fields
+            "message": action_records[0]["message"],
+            "strategy": action_records[0]["strategy"],
+            "chosen_target": action_records[0]["target"],
             "action_mask": self._action_mask(targets_after),
             "candidates": targets_after,
         }
-        return obs, float(reward), terminated, False, info
+        out_reward = float(rewards[0]) if single else rewards
+        return obs, out_reward, terminated, False, info

@@ -29,6 +29,7 @@ class Simulation:
         profiles: list[str] | None = None,
         seed_post: str | None = None,
         initial_stances: np.ndarray | None = None,
+        seed_ids: list[int] | tuple[int, ...] = (0,),
     ):
         self.scenario = scenario or LLMScenario()
         self.rng = np.random.default_rng(self.scenario.rng_seed)
@@ -39,7 +40,7 @@ class Simulation:
 
         self._init_population(profiles, initial_stances)
         self._init_network()
-        self._seed_agents(seed_post)
+        self._seed_agents(seed_post, seed_ids=tuple(seed_ids))
 
     # ------------------------------------------------------------------
     # Initialization
@@ -89,22 +90,27 @@ class Simulation:
             agent.degree_centrality = float(degree_centrality.get(agent.id, 0.0))
             agent.betweenness_centrality = float(betweenness.get(agent.id, 0.0))
 
-    def _seed_agents(self, seed_post):
-        """Seed the first agent (id 0) with the opposing viewpoint."""
-        seed_agent = self.agents[0]
-        seed_agent.isSeed = True
-        seed_agent.preference_state = 1
-        seed_agent.stance = -1.0
-        seed_agent.adoption_time = 0
+    def _seed_agents(self, seed_post, seed_ids=(0,)):
+        """Seed the persuader agents with the opposing viewpoint.
+
+        Default (single seed id 0) reproduces the original single-
+        persuader setup; the RL env passes one seed id per persuader.
+        """
         if seed_post is None:
             seed_post = (
                 "I believe this policy is harmful for our community. "
                 "The evidence is clear and people deserve to know the truth."
             )
-        seed_agent.post = seed_post
-        seed_agent.post_embedding = seed_agent._get_embedding(seed_post)
-        seed_agent.message_id = seed_agent.generate_message_id()
-        seed_agent.original_message_id = seed_agent.message_id
+        for seed_id in seed_ids:
+            seed_agent = self.agents[seed_id]
+            seed_agent.isSeed = True
+            seed_agent.preference_state = 1
+            seed_agent.stance = -1.0
+            seed_agent.adoption_time = 0
+            seed_agent.post = seed_post
+            seed_agent.post_embedding = seed_agent._get_embedding(seed_post)
+            seed_agent.message_id = seed_agent.generate_message_id()
+            seed_agent.original_message_id = seed_agent.message_id
 
     # ------------------------------------------------------------------
     # Diffusion

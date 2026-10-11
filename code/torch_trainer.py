@@ -123,6 +123,7 @@ class PPOConfig:
     # environment
     n_periods: int = 10
     agent_num: int = 30
+    n_persuaders: int = 1  # RL-controlled seed agents (shared policy)
     topology: str = "watts_strogatz"
     topic: str = "the policy"
     reward_cascade_discount: float = 0.5  # credit network-wide movement
@@ -171,33 +172,56 @@ def collect_episode(
     seed: int,
     greedy: bool = False,
 ):
-    """Run one episode; returns (obs, actions, rewards, masks, infos)."""
-    obs_list, act_list, rew_list, mask_list, info_last = [], [], [], [], {}
+    """Run one episode; returns (obs, actions, rewards, masks, infos).
+
+    Multi-persuader: env.n_persuaders > 1 means each period expands
+    into one policy decision per persuader (shared policy; action mask
+    is identical across persuaders, observations differ only in the
+    is_acting column). Each decision is stored as its own transition
+    with its own reward component, so an episode of P periods with N
+    persuaders yields P*N transitions.
+    """
+    n_persuaders = int(getattr(env, "n_persuaders", 1))
+    obs_list, act_list, rew_list, mask_list = [], [], [], []
     obs, info = env.reset(seed=seed)
     done = False
     while not done:
         mask = info.get("action_mask")
-        mask_t = None
-        if mask is not None:
-            mask_t = torch.as_tensor(mask, dtype=torch.bool, device=device)
-        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)
-        action = policy.act(obs_t, mask=mask_t, greedy=greedy)
-        obs, reward, terminated, truncated, info = env.step(action)
-        obs_list.append(obs)
-        act_list.append(action)
-        rew_list.append(reward)
-        m = info.get("action_mask")
-        if m is None:
-            m = np.ones(policy.n_actions, dtype=bool)
-        mask_list.append(m)
-        info_last = info
+        if mask is None:
+            mask = np.ones(policy.n_actions, dtype=bool)
+        mask_t = torch.as_tensor(mask, dtype=torch.bool, device=device)
+
+        if n_persuaders == 1:
+            obs_t = torch.as_tensor(obs, dtype=torch.float32, device=device)
+            action = policy.act(obs_t, mask=mask_t, greedy=greedy)
+            actions = action
+            step_obs = [(obs, action, mask)]
+        else:
+            actions, step_obs = [], []
+            for i in range(n_persuaders):
+                obs_i = env.observation(actor=i)
+                obs_t = torch.as_tensor(
+                    obs_i, dtype=torch.float32, device=device
+                )
+                action = policy.act(obs_t, mask=mask_t, greedy=greedy)
+                actions.append(action)
+                step_obs.append((obs_i, action, mask))
+
+        obs, reward, terminated, truncated, info = env.step(actions)
+        for (step_obs_i, act, m), rew in zip(
+            step_obs, np.atleast_1d(reward)
+        ):
+            obs_list.append(step_obs_i)
+            act_list.append(act)
+            rew_list.append(rew)
+            mask_list.append(m)
         done = terminated or truncated
     return (
         np.asarray(obs_list, dtype=np.float32),
         np.asarray(act_list, dtype=np.int64),
         np.asarray(rew_list, dtype=np.float32),
         np.asarray(mask_list, dtype=bool),
-        info_last,
+        info,
     )
 
 
@@ -599,18 +623,22 @@ def evaluate_random_baseline(
     def run_one(k: int) -> float:
         local_env = env.clone() if workers > 1 else env
         local_rng = np.random.default_rng(seed * 1000 + k)
+        n_persuaders = int(getattr(local_env, "n_persuaders", 1))
         obs, info = local_env.reset(seed=700_000 + k)
         total, done = 0.0, False
         while not done:
             mask = info.get("action_mask")
             n = local_env.action_space.n
-            if mask is not None and not mask.all():
-                valid = np.flatnonzero(mask)
-                action = int(local_rng.choice(valid))
-            else:
-                action = int(local_rng.integers(n))
+            actions = []
+            for _ in range(n_persuaders):
+                if mask is not None and not mask.all():
+                    valid = np.flatnonzero(mask)
+                    actions.append(int(local_rng.choice(valid)))
+                else:
+                    actions.append(int(local_rng.integers(n)))
+            action = actions[0] if n_persuaders == 1 else actions
             obs, reward, terminated, truncated, info = local_env.step(action)
-            total += reward
+            total += float(np.sum(np.atleast_1d(reward)))
             done = terminated or truncated
         return total
 
@@ -630,14 +658,20 @@ def evaluate_heuristic_baseline(
 
     def run_one(k: int) -> float:
         local_env = env.clone() if workers > 1 else env
+        n_persuaders = int(getattr(local_env, "n_persuaders", 1))
         obs, info = local_env.reset(seed=600_000 + k)
         done, total = False, 0.0
         from .strategy import N_STRATEGIES as n_strats
 
-        action = n_strats // 2  # first target, mid strategy
+        single_action = n_strats // 2  # first target, mid strategy
+        action = (
+            single_action
+            if n_persuaders == 1
+            else [single_action] * n_persuaders
+        )
         while not done:
             obs, reward, terminated, truncated, info = local_env.step(action)
-            total += reward
+            total += float(np.sum(np.atleast_1d(reward)))
             done = terminated or truncated
         return total
 

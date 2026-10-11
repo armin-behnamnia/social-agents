@@ -18,8 +18,24 @@ def build_network(agent_num: int, topology: str = "watts_strogatz", seed: int | 
     elif topology == "complete":
         graph = nx.complete_graph(n=agent_num)
     elif topology == "erdos_renyi":
+        # Nearly sparse: average degree ~4. Retry with bumped seeds
+        # until the graph is connected (ER with low average degree can
+        # otherwise isolate nodes, which would make them unreachable
+        # persuasion targets).
         p = max(0.05, 4.0 / max(1, agent_num - 1))
-        graph = nx.erdos_renyi_graph(n=agent_num, p=p, seed=seed)
+        graph = None
+        for bump in range(50):
+            cand = nx.erdos_renyi_graph(
+                n=agent_num, p=p, seed=None if seed is None else seed + bump
+            )
+            if nx.is_connected(cand):
+                graph = cand
+                break
+        if graph is None:
+            raise RuntimeError(
+                f"could not build a connected ER graph after 50 tries "
+                f"(n={agent_num}, p={p:.3f})"
+            )
     else:
         raise ValueError(f"unknown topology: {topology}")
 

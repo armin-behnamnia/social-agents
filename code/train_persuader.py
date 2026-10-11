@@ -37,7 +37,9 @@ from .torch_trainer import (
 )
 
 
-def build_env(cfg: PPOConfig, observer_inference: bool = False) -> ElitePersuaderEnv:
+def build_env(cfg: PPOConfig, observer_inference: bool = False,
+              target_selection: str = "learned",
+              obs_mode: str = "matrix") -> ElitePersuaderEnv:
     scenario = LLMScenario(
         agent_num=cfg.agent_num,
         # Observer-side inference (Prompt 5) is not used by the RL
@@ -51,11 +53,13 @@ def build_env(cfg: PPOConfig, observer_inference: bool = False) -> ElitePersuade
         n_periods=cfg.n_periods,
         topology=cfg.topology,
         topic=cfg.topic,
-        target_selection="learned",
+        target_selection=target_selection,
+        obs_mode=obs_mode,
         reward_cascade_discount=cfg.reward_cascade_discount,
         message_cost=cfg.message_cost,
         shaping_accept_bonus=cfg.shaping_accept_bonus,
         persuade_all_neighbors=cfg.persuade_all_neighbors,
+        n_persuaders=cfg.n_persuaders,
     )
 
 
@@ -144,29 +148,64 @@ def warmup_render_cache(cfg: "PPOConfig", workers: int | None = None) -> None:
     def render_one(job):
         spec, profile = job
         try:
-            LLM_module.render_strategy_message(
+            message = LLM_module.render_strategy_message(
                 spec, target_profile=profile, topic=topic,
                 stance_direction="opposing",
             )
-            return True
+            if isinstance(message, str):
+                return (message, profile)
+            return None
         except Exception:  # noqa: BLE001
-            return False
+            return None
 
     done = ok = 0
+    rendered: list[tuple[str, str]] = []
     with ThreadPoolExecutor(max_workers=n_workers) as pool:
         futures = [pool.submit(render_one, job) for job in jobs]
         for fut in as_completed(futures):
             done += 1
-            if fut.result():
+            res = fut.result()
+            if res is not None:
                 ok += 1
+                rendered.append(res)
             if done % 250 == 0:
                 print(
                     f"    {done}/{len(jobs)} rendered "
                     f"({time.time() - t0:.0f}s elapsed)"
                 )
     print(
-        f"[+] cache warmup done: {ok}/{len(jobs)} ok in "
+        f"[+] render cache warmup done: {ok}/{len(jobs)} ok in "
         f"{time.time() - t0:.0f}s"
+    )
+
+    # warm the persuasiveness judge cache too (message x profile);
+    # without this every training step pays one uncached LLM call
+    print(f"[*] warming judge cache: {len(rendered)} pairs")
+    t1 = time.time()
+
+    def judge_one(item):
+        message, profile = item
+        try:
+            LLM_module.judge_persuasiveness(message, profile)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    done = ok = 0
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        futures = [pool.submit(judge_one, item) for item in rendered]
+        for fut in as_completed(futures):
+            done += 1
+            if fut.result():
+                ok += 1
+            if done % 500 == 0:
+                print(
+                    f"    {done}/{len(rendered)} judged "
+                    f"({time.time() - t1:.0f}s elapsed)"
+                )
+    print(
+        f"[+] judge cache warmup done: {ok}/{len(rendered)} ok in "
+        f"{time.time() - t1:.0f}s"
     )
 
 
@@ -191,6 +230,19 @@ def main() -> int:
              "renders then become instant cache hits",
     )
     parser.add_argument("--agent-num", type=int, default=None)
+    parser.add_argument("--n-persuaders", type=int, default=None,
+                        help="RL-controlled seed agents (shared policy)")
+    parser.add_argument("--topology", type=str, default=None,
+                        help="watts_strogatz / barabasi_albert / "
+                             "erdos_renyi / complete")
+    parser.add_argument("--target-selection", type=str,
+                        default="learned",
+                        help="learned (compound target+strategy action) "
+                             "or random_neighbor (random own-neighbor "
+                             "target; policy chooses strategy only)")
+    parser.add_argument("--obs-mode", type=str, default="matrix",
+                        help="matrix / summary / pair "
+                             "(pair requires random_neighbor)")
     parser.add_argument("--n-periods", type=int, default=None)
     parser.add_argument("--device", type=str, default=None,
                         help="cuda / cpu (default: auto)")
@@ -235,6 +287,10 @@ def main() -> int:
         cfg.rollout_workers = max(1, args.rollout_workers)
     if args.agent_num is not None:
         cfg.agent_num = args.agent_num
+    if args.n_persuaders is not None:
+        cfg.n_persuaders = args.n_persuaders
+    if args.topology is not None:
+        cfg.topology = args.topology
     if args.n_periods is not None:
         cfg.n_periods = args.n_periods
     if args.device is not None:
@@ -247,19 +303,34 @@ def main() -> int:
         cfg.output_dir = str(Path(cfg.output_dir) / "mock")
 
     print(
-        f"[*] PPO config: agents={cfg.agent_num} periods={cfg.n_periods} "
-        f"actions={cfg.n_actions()} (target x strategy) "
+        f"[*] PPO config: agents={cfg.agent_num} persuaders={cfg.n_persuaders} "
+        f"topology={cfg.topology} periods={cfg.n_periods} "
+        f"target_selection={args.target_selection} "
         f"iters={cfg.iterations} x {cfg.episodes_per_iteration} episodes "
         f"workers={cfg.rollout_workers}"
     )
 
     # cache warmup: pre-render the full (strategy x profile) matrix ----
     if args.warmup_cache and args.mode == "live":
-        warmup_render_cache(cfg)
+        warmup_render_cache(cfg, workers=cfg.rollout_workers)
 
-    env = build_env(cfg, observer_inference=args.with_observer)
-    trainer = PPOTrainer(env, cfg, env_factory=lambda: build_env(cfg))
-    print(f"[*] training on device: {trainer.device}")
+    env = build_env(
+        cfg,
+        observer_inference=args.with_observer,
+        target_selection=args.target_selection,
+        obs_mode=args.obs_mode,
+    )
+    trainer = PPOTrainer(
+        env,
+        cfg,
+        env_factory=lambda: build_env(
+            cfg,
+            target_selection=args.target_selection,
+            obs_mode=args.obs_mode,
+        ),
+    )
+    print(f"[*] training on device: {trainer.device}; "
+          f"action_space={env.action_space.n} obs={env.observation_space.shape}")
 
     policy, history = trainer.train()
 
