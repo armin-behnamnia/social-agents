@@ -118,4 +118,66 @@ comparable across runs — judge each run against its own baselines.
 
 Verification of this report's numbers: `results.json` and
 `training_log.json` under each run dir; code state passes the full
-suite (50 tests, `pytest code/tests -q`).
+suite (74 tests, `pytest code/tests -q`).
+
+---
+
+# Campaign 2 — 50 agents, 5 learning persuaders (shared policy)
+
+Date: 2026-10-11. Setup: 5 RL persuaders (seed agents 0–4, one shared
+PPO policy, per-persuader reward attribution, joint per-period
+actions) among 45 frozen crowd agents; nearly-sparse Erdős–Rényi
+network (avg degree 4, connectivity-guarded); 10 periods/episode;
+GPU PPO, parallel rollouts.
+
+## Run 5p/live_run1 — global compound targeting (INTERIM, interrupted)
+
+250 iters × 16 eps planned, infrastructure kill at iter 25/250
+(no code error; checkpoint `policy.pt` @ iter 25). Formal wrap-up
+evaluation (20 episodes each, `code/eval_wrapup.py`):
+
+| Policy | Reward | vs random |
+|---|---|---|
+| **Random baseline** | **10.004** | — |
+| Heuristic | 6.761 | −3.24 |
+| Learned greedy @ iter 25 | 7.562 | **−2.44** |
+
+**Finding (qualitative, visualized):** the greedy policy mode-collapsed
+— all five persuaders targeted the *same node with the same strategy*
+every period. Mechanism: global candidate space + shared policy +
+near-identical per-actor observations (single is-acting bit) ⇒
+argmax picks the same action for all actors; and the reward even
+pays such stacking short-term (per-source credited events). At real
+evaluation scale it loses to uniform-random targeting by −24%.
+Replays: `output/ppo5p/live_run1/viz/trained_at25/` (trained) and
+`.../viz/random/` (random baseline): trained achieved 21/50 adopted
+vs 12/50 on the same network seed (concentrated multi-hit does
+adopt single targets) yet still loses on the reward objective.
+
+**Design response (spec-mandated):** each persuader now targets a
+*randomly drawn eligible own-neighbor* per period; the policy chooses
+only the strategy (`Discrete(180)`), observing a 26-d vector
+(persuader features ‖ target features, `obs_mode="pair"`).
+Fixes the collapse structurally (disjoint neighborhoods), shrinks the
+action space 50×, and matches the intended interaction protocol.
+
+## Run ppo5p_rn/live_run1 — random-neighbor target + learned strategy
+
+IN PROGRESS at report time (230/300 iterations; 8 eps/iter; 8 workers;
+render+judge caches warm). Greedy-eval trajectory (8 episodes each):
+
+| iter | 20 | 60 | 100 | 140 | 180 | 220 |
+|---|---|---|---|---|---|---|
+| eval | 8.63 | 10.42 | 10.49 | 10.14 | **11.06** | 10.45 |
+
+First-3 evals mean 8.94 → last-3 mean 10.57 (+18%): **the first rising
+evaluation curve across both campaigns** (all campaign-1 runs were
+flat). Training reward ≈ 9.9–10.4/episode; adoptions ≈ 14–16 of 50;
+mean final stance ≈ 0.19 (from +0.65). Value loss settled 3.8 → ~0.3;
+no divergence, healthy entropy.
+
+Artifacts: `output/ppo5p_rn/live_run1/training_progress.png`
+(live-parsed 4-panel chart), `viz/trained_at210/` and `viz/random/`
+(GIF + interactive HTML action/event log + trajectory.json).
+Formal baselines (results.json) are written automatically at iter 300;
+the final section will be updated on completion.
