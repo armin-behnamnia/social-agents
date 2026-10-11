@@ -181,3 +181,21 @@ Artifacts: `output/ppo5p_rn/live_run1/training_progress.png`
 (GIF + interactive HTML action/event log + trajectory.json).
 Formal baselines (results.json) are written automatically at iter 300;
 the final section will be updated on completion.
+
+Episode replays (same network + persona seed, live LLM, 10 periods):
+
+| Replay | Total reward | Adopted | Mean stance 0.485 -> |
+|---|---|---|---|
+| Trained @ iter ~210 | **9.79** | **21/50** | **+0.101** |
+| Random strategy | 8.91 | 17/50 | +0.181 |
+
+The replay visualizes the redesigned interaction protocol working as
+specified: each persuader hits a *distinct own-neighbor* every period
+(no more stacked targeting). One caveat visible in the frames: the
+learned policy has converged onto a single strategy family
+(ethos/confident) for (almost) all pairs — strategy-level convergence
+without target stacking. Single-episode numbers are illustrative; the
+formal comparison is the 8+ episode eval/baselines at completion.
+
+Artifacts (rewatch): `output/ppo5p_rn/live_run1/viz/trained_at210/`
+and `.../viz/random/` — `episode.html` is self-contained.
