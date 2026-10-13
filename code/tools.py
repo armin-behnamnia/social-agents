@@ -1,98 +1,63 @@
-"""Text embedding utilities with a deterministic local fallback.
+from transformers import BertTokenizer, BertModel
+import torch
+import pickle
 
-The original code imported `source.tools.text2embedding`, which was never
-provided. This module offers:
-- `text2embedding`: sentence-transformers if available, otherwise a
-  deterministic hash-based bag-of-words fallback so the simulation,
-  tests, and analysis run without heavyweight dependencies or network
-  access. The two backends are NOT numerically compatible; pick one per
-  experiment via config.
-"""
+def text2embedding(sentence):
 
-from __future__ import annotations
+    model_name = 'bert-base-uncased'
+    tokenizer = BertTokenizer.from_pretrained(model_name)
+    model = BertModel.from_pretrained(model_name)
 
-import hashlib
-import logging
-import re
-from typing import Sequence
+    if sentence is None or not sentence.strip():
+        return None
 
-import numpy as np
+    inputs = tokenizer(sentence, return_tensors="pt")
 
-logger = logging.getLogger(__name__)
+    with torch.no_grad():
+        outputs = model(**inputs)
 
-_FALLBACK_DIM = 256
-_TOKEN_RE = re.compile(r"[a-z0-9']+")
-_model = None
-_backend: str | None = None
+    embedding = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
 
+    return embedding
 
-def _fallback_embedding(text: str) -> np.ndarray:
-    vec = np.zeros(_FALLBACK_DIM, dtype=np.float32)
-    tokens = _TOKEN_RE.findall(text.lower())
-    if not tokens:
-        return vec
-    for token in tokens:
-        digest = hashlib.md5(token.encode()).digest()
-        idx = int.from_bytes(digest[:4], "little") % _FALLBACK_DIM
-        vec[idx] += 1.0
-    norm = float(np.linalg.norm(vec))
-    if norm > 0:
-        vec /= norm
-    return vec
+def create_user_embedding():
+    user_profiles = []
+    with open("C:/Users/Najari/Desktop/InformationDiffusion/Randomness/LAIDSim3--stance,/data/input/user_profile.txt", "r") as file:
+        for line in file.readlines():
+            profile = line.split(": ")[1]
+            user_profiles.append(profile)
+
+    user_embeddings = []
+    for user in user_profiles:
+        profile = remove_substrings(user, ['is a', 'enjoys', ' who ', '-year-old', 'He', 'She'])
+        embedding = text2embedding(profile)
+        user_embeddings.append(embedding)
+
+    save_pickle(user_embeddings, "C:/Users/Najari/Desktop/InformationDiffusion/Randomness/LAIDSim3--stance,/data/input/user_embedding.pickle")
 
 
-def _get_model():
-    global _model, _backend
-    if _model is not None:
-        return _model
-    try:
-        from sentence_transformers import SentenceTransformer
-
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-        _backend = "sentence-transformers/all-MiniLM-L6-v2"
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "sentence-transformers unavailable (%s); "
-            "using deterministic hash-based fallback embeddings "
-            "(NOT compatible with the MiniLM backend)",
-            exc,
-        )
-        _backend = "hash-fallback"
-        _model = False  # sentinel: fallback mode
-    return _model
+def remove_substrings(input_string, substrings_to_remove):
+    result = input_string
+    for substring in substrings_to_remove:
+        result = result.replace(substring, "")
+    return result
 
 
-def text2embedding(text: str | Sequence[str]):
-    """Embed a string (or list of strings) into a unit-norm vector.
-
-    Returns a 1-D np.ndarray for a single string, or a 2-D array
-    (n, d) for a sequence. Empty/None input yields a zero vector.
-    """
-    if isinstance(text, str):
-        if not text.strip():
-            return np.zeros(_embedding_dim(), dtype=np.float32)
-        return _embed_batch([text])[0]
-    texts = [t if isinstance(t, str) and t.strip() else "" for t in text]
-    if not texts:
-        return np.zeros((0, _embedding_dim()), dtype=np.float32)
-    return _embed_batch(texts)
+def save_pickle(data, filename):
+    with open(filename, 'wb') as file:
+        pickle.dump(data, file)
+    print(f'{filename} saved!')
 
 
-def _embedding_dim() -> int:
-    model = _get_model()
-    if model is False:
-        return _FALLBACK_DIM
-    return int(model.get_sentence_embedding_dimension())
+def load_pickle(filename):
+    with open(filename, 'rb') as file:
+        data = pickle.load(file)
+        print(f'{filename} loaded!')
+        return data
 
 
-def _embed_batch(texts: list[str]) -> np.ndarray:
-    model = _get_model()
-    if model is False:
-        return np.stack([_fallback_embedding(t) for t in texts])
-    vecs = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
-    return np.asarray(vecs, dtype=np.float32)
-
-
-def embedding_backend() -> str:
-    _get_model()
-    return _backend or "unknown"
+if __name__ == '__main__':
+    # test
+    create_user_embedding()
+    # data = load_pickle('../data/input/user_embedding.pickle')
+    # print(data)

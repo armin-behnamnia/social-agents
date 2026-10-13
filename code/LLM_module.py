@@ -1,239 +1,220 @@
-"""LLM call layer with retries, caching, and robust output parsing.
+import openai
+from openai import OpenAI
 
-Fixes applied vs. the original code:
-- Five copy-pasted parameter blocks collapsed into one `call_llm` helper.
-- Numeric observer outputs are extracted with a regex and validated to
-  [0, 1] (previously raw strings were returned, corrupting metrics).
-- Retries with exponential backoff on API/transient failures.
-- Deterministic temperature for estimators (was 0.8, injecting noise
-  directly into the measured quantity).
-- Model / base URL / API key come from config, not hardcoded literals.
-- An optional on-disk cache avoids re-paying inference cost on re-runs.
-"""
+# اتصال به Ollama local server
+client = OpenAI(
+    base_url="http://localhost:11434/v1",
+    api_key="ollama"   # هر مقداری قبول می‌کند، لازم نیست واقعی باشد
+)
+def generate_profile():
 
-from __future__ import annotations
+    prompt = """
+    Generate user profiles for 50 users as a 50-word unique description,
+    ages of these users follow Gaussian distribution,
+    gender is half and half.
+    Listed your response by user id.
 
-import hashlib
-import json
-import logging
-import re
-import time
-from pathlib import Path
-
-from .config import GLOBAL_LLM_CONFIG
-
-logger = logging.getLogger(__name__)
-
-_NUMBER_RE = re.compile(r"[-+]?\d*\.?\d+")
-
-
-class LLMError(RuntimeError):
-    pass
-
-
-def _cache_path(cache_dir: Path, key: str) -> Path:
-    return cache_dir / f"{key}.json"
-
-
-def call_llm(
-    prompt: str,
-    *,
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    cache: bool = True,
-    cache_dir: str | Path = ".llm_cache",
-    system_prompt: str | None = None,
-) -> str:
-    """Single entry point for chat completion with retry + cache."""
-    cfg = GLOBAL_LLM_CONFIG
-
-    if temperature is None:
-        temperature = cfg.generation_temperature
-    if max_tokens is None:
-        max_tokens = cfg.generation_max_tokens
-
-    cache_dir_path = Path(cache_dir)
-    key = hashlib.sha256(
-        json.dumps(
-            {
-                "model": cfg.model,
-                "prompt": prompt,
-                "system": system_prompt,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
-
-    if cache:
-        cache_dir_path.mkdir(parents=True, exist_ok=True)
-        cached = _cache_path(cache_dir_path, key)
-        if cached.exists():
-            try:
-                return json.loads(cached.read_text())["content"]
-            except (json.JSONDecodeError, KeyError):
-                logger.warning("corrupt cache entry %s; ignoring", cached)
-
-    # Imported lazily so tests / analysis can run without the openai package.
-    try:
-        from openai import OpenAI
-    except ImportError as exc:  # pragma: no cover
-        raise LLMError(
-            "openai package not installed; install requirements.txt"
-        ) from exc
-
-    client = OpenAI(
-        base_url=cfg.base_url,
-        api_key=cfg.api_key,
-        timeout=cfg.timeout_seconds,
-    )
-
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    last_error: Exception | None = None
-    for attempt in range(1, cfg.max_retries + 1):
-        try:
-            response = client.chat.completions.create(
-                model=cfg.model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
-            content = response.choices[0].message.content
-            if content is None or not str(content).strip():
-                raise LLMError("LLM returned empty content")
-            content = str(content).strip()
-            if cache:
-                _cache_path(cache_dir_path, key).write_text(
-                    json.dumps({"content": content})
-                )
-            return content
-        except Exception as exc:  # noqa: BLE001 - transient API errors
-            last_error = exc
-            wait = cfg.retry_backoff_seconds * (2 ** (attempt - 1))
-            logger.warning(
-                "LLM call attempt %d/%d failed (%s); retrying in %.1fs",
-                attempt,
-                cfg.max_retries,
-                exc,
-                wait,
-            )
-            time.sleep(wait)
-
-    raise LLMError(f"LLM call failed after {cfg.max_retries} attempts") from last_error
-
-
-def parse_stance_shift(raw: str) -> float:
-    """Extract a validated stance-shift value in [0, 1] from an LLM reply.
-
-    Returns 0.0 when nothing numeric can be extracted (previously raw
-    strings like "The shift is 0.3." flowed into metric computation).
+    Based on this example:
+    User ID 15: Benjamin is a 48-year-old male who is a history enthusiast.
+    He enjoys reading historical books and visiting museums.
     """
-    if raw is None:
-        return 0.0
-    matches = _NUMBER_RE.findall(str(raw))
-    for match in reversed(matches):  # last number is most likely the answer
-        try:
-            value = float(match)
-        except ValueError:
-            continue
-        if 0.0 <= value <= 1.0:
-            return value
-        # allow e.g. "0.8 out of 1" style answers already covered; clamp others
-        if value > 1.0:
-            continue
-    # fall back to first numeric token clamped
-    for match in matches:
-        try:
-            value = float(match)
-        except ValueError:
-            continue
-        return min(max(value, 0.0), 1.0)
-    return 0.0
+
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 4000,
+        "temperature": 0.8
+    }
+
+    response = client.chat.completions.create(**parameters)
+
+    return response.choices[0].message.content
+
+def goal_promotion(neighbor_profile):
+
+    prompt = """
+    You are promoting a service called LocalBiz to a target user.
+    **Candidate Messages:**
+    1. LocalBiz helps small businesses improve their online presence and attract more customers.
+    2. LocalBiz offers affordable digital tools to help businesses manage costs and improve efficiency.
+    3. LocalBiz connects local businesses with new customers and supports local economic growth.
+    **Target Profile:** {neighbor_profile}
+    Generate a new promotional message tailored to the target's profile. 
+    Use relevant ideas from the provided messages, adapting or combining them as appropriate. 
+    Preserve the goal of promoting LocalBiz, do not invent additional claims, and keep the message concise and natural.
+    Return only the generated message.
+    """
+
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 500,
+        "temperature": 0.8
+    }
+
+    response = client.chat.completions.create(**parameters)
+
+    return response.choices[0].message.content
+
+def generate_information(received, profile, old_post):
+
+    prompt = f""" You are a social media user with the following profile: {profile}
+    You have received the following information: {received} 
+    Your previously shared post was: {old_post} 
+    Generate one new social media post based on the information you received. 
+    The new post should: 
+    - reflect your personal profile and interests, 
+    - incorporate the received information, 
+    - maintain reasonable continuity with your previously shared post, 
+    - express the information naturally in your own words. 
+    Do not simply copy or mechanically rewrite the received information. 
+    Do not follow a fixed rewriting template. 
+    Decide naturally how a user with this profile and posting history would express or share the information. 
+    Write in the first person. 
+    Maximum 50 words. """
+
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 500,
+        "temperature": 0.8
+    }
+
+    response = client.chat.completions.create(**parameters)
+
+    return response.choices[0].message.content
+def update_profile(received, profile):
+
+    prompt = f""" You are a social media user with the following profile: {profile}
+
+    You have received the following information: {received}
+
+    Generate one piece of information as the new profile that conveys or spreads
+    the received information.
+
+    The generated profile should reflect:
+    - your current personal profile,
+    - the received information,
+
+    Do not follow a fixed rewriting rule.
+    Infer a natural way to express the information.
+
+    Write in first person.
+    Maximum 50 words.
+    """
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 500,
+        "temperature": 0.8
+    }
+
+    response = client.chat.completions.create(**parameters)
+
+    return response.choices[0].message.content
 
 
-# ----------------------------------------------------------------------
-# Prompts (kept close to the paper's Prompt 1-5 definitions)
-# ----------------------------------------------------------------------
+def generate_response_message(post, profile, delta_stance):
 
-PROFILE_GENERATION_PROMPT = """Generate user profiles for {n_users} users as a 50-word unique description,
-ages of these users follow Gaussian distribution,
-gender is half and half.
-Listed your response by user id.
-
-Based on this example:
-User ID 15: Benjamin is a 48-year-old male who is a history enthusiast.
-He enjoys reading historical books and visiting museums."""
-
-
-def generate_profile(n_users: int = 50) -> str:
-    return call_llm(
-        PROFILE_GENERATION_PROMPT.format(n_users=n_users),
-        temperature=GLOBAL_LLM_CONFIG.generation_temperature,
-        max_tokens=GLOBAL_LLM_CONFIG.profile_max_tokens,
-    )
-
-
-def generate_information(received: str, profile: str) -> str:
-    prompt = f"""You are a social media user with the following profile: {profile}
-
-You have received the following information: {received}
-
-Generate one new piece of information that conveys or spreads the received information.
-
-The generated message should reflect:
-- your personal profile,
-- the received information,
-
-Do not follow a fixed rewriting rule. Infer a natural way to express the information.
-
-Write in first person. Maximum 50 words."""
-    return call_llm(prompt)
-
-
-def update_profile(received: str, profile: str) -> str:
-    prompt = f"""You are a social media user with the following profile: {profile}
-
-You have received the following information: {received}
-
-Generate one piece of information as the new profile that conveys or spreads the received information.
-
-The generated profile should reflect:
-- your current personal profile,
-- the received information,
-
-Do not follow a fixed rewriting rule. Infer a natural way to express the information.
-
-Write in first person. Maximum 50 words."""
-    return call_llm(prompt)
-
-
-def generate_response_message(post: str, profile: str, delta_stance: float) -> str:
-    prompt = f"""You are given an Original Post that has influenced a target user.
-
-The target user has **not fully accepted the Original Post**. Instead, based on their profile, they have unconsciously internalized only the part of its viewpoint that is consistent with them, resulting in a stance change of {delta_stance:.4f} toward the Original Post.
-
-Identify and express the part of the Original Post that the target user has internalized. The generated message should preserve the original viewpoint but reflect **only the portion accepted by this user**, corresponding to the specified stance change.
-
+    prompt = f"""
 Original Post:
 {post}
 
 Target Profile:
 {profile}
 
-Stance Change (delta):
-{delta_stance:.4f}
+Stance Change (Δ): {delta_stance}
 
-Generate only the internalized message."""
-    return call_llm(prompt)
+Generate a concise, natural message expressing the portion of the
+Original Post's viewpoint internalized by the target user, consistent
+with their profile and the magnitude of Δ. Larger Δ should generally
+produce a clearer expression of the viewpoint, without implying
+complete acceptance.
 
+Do not copy the original post or introduce unrelated claims.
+Output only the message in 1–3 sentences.
+"""
 
-def _infer_shift_prompt_body(received_message: str) -> str:
-    return f"""The user may accept only part of the message. Do not assume that receiving or responding to the message means full acceptance.
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 120,
+        "temperature": 0.7
+    }
+
+    response = client.chat.completions.create(**parameters)
+
+    return response.choices[0].message.content.strip()
+
+#def accept_message(post, profile, exposure_count): # history
+def accept_message(source_post, target_profile, observed_history):
+
+    prompt = f"""
+You are a target user deciding whether to accept a message.
+
+Message:
+{source_post}
+
+Your Profile:
+{target_profile}
+
+Previously Observed Messages:
+{observed_history}
+
+Decide whether to accept the message based on its relevance,
+content, your profile, and your previous exposure.
+
+Return exactly one word: ACCEPT or REJECT.
+"""
+
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 500,
+        "temperature": 0.8
+    }
+
+    response = client.chat.completions.create(**parameters)
+
+    decision = response.choices[0].message.content.strip().upper()
+
+    return "ACCEPT" if decision.startswith("ACCEPT") else "REJECT"
+
+def Inference_stance (received_message, new_post, previous_profile, updated_profile):
+    prompt = f"""You are an observer estimating how much a user's stance shifted toward a received message.
+
+The user first had a Previous Profile. After receiving the Received Message, the user generated a New Post and their profile changed to the Updated Profile.
+
+Estimate how much the Received Message changed the user's stance toward its viewpoint. Use the New Post and the change from the Previous Profile to the Updated Profile as observable evidence.
+
+The user may accept only part of the message. Do not assume that receiving or responding to the message means full acceptance.
 
 Stance shift is a value between 0 and 1 representing the degree of change toward the Received Message.
 
@@ -248,19 +229,6 @@ Estimate the shift caused by the Received Message, not the general sentiment of 
 Received Message:
 {received_message}
 
-"""
-
-
-def inference_stance(
-    received_message: str, new_post: str, previous_profile: str, updated_profile: str
-) -> float:
-    prompt = f"""You are an observer estimating how much a user's stance shifted toward a received message.
-
-The user first had a Previous Profile. After receiving the Received Message, the user generated a New Post and their profile changed to the Updated Profile.
-
-Estimate how much the Received Message changed the user's stance toward its viewpoint. Use the New Post and the change from the Previous Profile to the Updated Profile as observable evidence.
-
-{_infer_shift_prompt_body(received_message)}
 Previous Profile:
 {previous_profile}
 
@@ -270,96 +238,116 @@ New Post:
 Updated Profile:
 {updated_profile}
 
-Return only one numerical value in [0, 1]."""
-    raw = call_llm(
-        prompt,
-        temperature=GLOBAL_LLM_CONFIG.inference_temperature,
-        max_tokens=GLOBAL_LLM_CONFIG.inference_max_tokens,
-    )
-    return parse_stance_shift(raw)
+Return only one numerical value in [0, 1].
+"""
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 500,
+        "temperature": 0.8
+    }
 
+    response = client.chat.completions.create(**parameters)
 
-def inference_stance_post(received_message: str, new_post: str) -> float:
+    return response.choices[0].message.content 
+
+def Inference_stance_post(received_message, new_post):
     prompt = f"""You are an observer estimating how much a user's stance shifted toward a received message.
 
 After receiving the Received Message, the user generated a New Post in response.
 
 Estimate how much the Received Message changed the user's stance toward its viewpoint, using the New Post as observable evidence of the user's response.
 
-{_infer_shift_prompt_body(received_message)}
+The user may accept only part of the message. Do not assume that responding to the message means full acceptance.
+
+Stance shift is a value between 0 and 1 representing the degree of change toward the Received Message.
+
+- 0 = no observable shift toward the message
+- 0.25 = small shift
+- 0.5 = moderate shift
+- 0.75 = substantial shift
+- 1 = strong shift toward the message
+
+Estimate the shift caused by the Received Message, not the general sentiment or similarity of the New Post.
+
+Received Message:
+{received_message}
+
 New Post:
 {new_post}
 
-Return only one numerical value in [0, 1]."""
-    raw = call_llm(
-        prompt,
-        temperature=GLOBAL_LLM_CONFIG.inference_temperature,
-        max_tokens=GLOBAL_LLM_CONFIG.inference_max_tokens,
-    )
-    return parse_stance_shift(raw)
+Return only one numerical value in [0, 1].
+"""
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 500,
+        "temperature": 0.8
+    }
 
+    response = client.chat.completions.create(**parameters)
 
-def inference_stance_profile(
-    received_message: str, previous_profile: str, updated_profile: str
-) -> float:
+    return response.choices[0].message.content
+
+def Inference_stance_profile (received_message, previous_profile, updated_profile):
     prompt = f"""You are an observer estimating how much a user's stance shifted toward a received message.
 
 The user first had a Previous Profile. After receiving the Received Message, the user's profile changed to the Updated Profile.
 
 Estimate how much the Received Message changed the user's stance toward its viewpoint, using the change from the Previous Profile to the Updated Profile as observable evidence.
 
-{_infer_shift_prompt_body(received_message)}
+The user may accept only part of the message. Do not assume that a profile change means full acceptance.
+
+Stance shift is a value between 0 and 1 representing the degree of change toward the Received Message.
+
+- 0 = no observable shift toward the message
+- 0.25 = small shift
+- 0.5 = moderate shift
+- 0.75 = substantial shift
+- 1 = strong shift toward the message
+
+Estimate the shift caused by the Received Message based only on the observed profile change.
+
+Received Message:
+{received_message}
+
 Previous Profile:
 {previous_profile}
 
 Updated Profile:
 {updated_profile}
 
-Return only one numerical value in [0, 1]."""
-    raw = call_llm(
-        prompt,
-        temperature=GLOBAL_LLM_CONFIG.inference_temperature,
-        max_tokens=GLOBAL_LLM_CONFIG.inference_max_tokens,
-    )
-    return parse_stance_shift(raw)
+Return only one numerical value in [0, 1].
+"""
+    parameters = {
+        "model": "llama3.1:latest",
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "max_tokens": 500,
+        "temperature": 0.8
+    }
 
+    response = client.chat.completions.create(**parameters)
 
+    return response.choices[0].message.content
 if __name__ == "__main__":
-    print(generate_profile())
-
-
-# ----------------------------------------------------------------------
-# Strategy-conditioned persuasion rendering (RL approach 2)
-# ----------------------------------------------------------------------
-
-def render_strategy_message(
-    strategy_spec,
-    target_profile: str,
-    topic: str = "the policy",
-    stance_direction: str = "opposing",
-) -> str:
-    """Render a StrategySpec into a persuasion message via the LLM.
-
-    The LLM is frozen (not trained); it acts as a decoder from the
-    strategy space to natural language. Deterministic temperature so
-    the RL signal reflects the policy's action, not sampling noise.
-    """
-    prompt = f"""You are crafting a persuasive social-media message.
-
-Persuasion strategy:
-- Rhetorical appeal: {strategy_spec.appeal} (logos = facts/logic, pathos = emotion, ethos = credibility)
-- Tone: {strategy_spec.tone}
-- Emphasis: {strategy_spec.emphasis} (evidence = data and studies, personal_story = lived experience, social_proof = what others are doing, risk = dangers of inaction, authority = expert consensus)
-- Intensity: {strategy_spec.intensity_label} ({strategy_spec.intensity:.2f}/1.00)
-
-Target audience profile: {target_profile}
-
-Write ONE short social-media post (maximum 50 words, first person) that
-takes an {stance_direction} stance on {topic} and follows the strategy
-above as closely as possible. Do not mention the strategy explicitly.
-Return only the message."""
-    return call_llm(
-        prompt,
-        temperature=0.0,
-        max_tokens=GLOBAL_LLM_CONFIG.generation_max_tokens,
-    )
+    # Generate text
+    text = generate_profile()
+    print("Generated Text:\n", text)
+    print("finished")
+    with open("../data/input/user_profile.txt", "w") as file:
+        file.write(text)
