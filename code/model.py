@@ -128,18 +128,24 @@ class LLMModel(Model):
         self.calculate_betweenness_centrality()
 
 
-    def run(self, method):
+    def run(self, method=""):
         self.initialisation()
         for period in self.iterator(self.scenario.period_num):
             print(f"period: {period}",flush=True)
             if period > 0 :
                 if method =="stance_aware":
+                    print("stance_aware infection is opend"); #breakpoint()
                     self.environment.agents_infection_stance_aware(self.agents, period)
-                else: self.environment.calc_population_infection_state(self.agents)
+                    print("stance_aware infection is closed")
+                else:
+                    #print("Exposure-aware infection is opend")
+                    self.environment.agents_infection(self.agents, period)
+                    #print("Exposure-aware infection is closed")                    
+            self.environment.calc_population_infection_state(self.agents)
             self.data_collector.collect(period)
         self.data_collector.save()
         self.environment.save_information_analysis(self.agents)
-        self.environment.save_diffusion_events()
+        self.environment.save_diffusion_events(method)
         print("Simulation finished.", flush=True)
     
     def load_agent_profiles(self):

@@ -5,6 +5,7 @@ from source.tools import text2embedding
 
 class LLMScenario(Scenario):
     def setup(self):
+        self.debug = False
         self.period_num: int = 20
         self.run_num: int = 1
         self.agent_num: int = 100
@@ -25,7 +26,7 @@ class LLMScenario(Scenario):
         self.alpha_stance = 0.2
         self.alpha_degree = 0.2
         self.alpha_degree_stance = 0.2
-        self.initial_infected_pecentage: float = 0.1 # for 100 should change
+        self.initial_infected_pecentage: float = 0.1 # for 100 should change to 0.03
         self.stance_threshold = 0.7
         self.scenario_type = "Generic" # "Selective" , "Generative", "RL_Generative"
         self.general_influence_msg: str = "Discover LocalBiz, a service designed to help local businesses grow and succeed. Explore practical solutions for your business and discover new opportunities for growth. #LocalBiz"
@@ -37,13 +38,27 @@ class LLMScenario(Scenario):
         self.seed_size = 10
         #self.agents = AgentList(LLMSocialAgent)
         Scenario.stance_params = {
-        "support_ratio": 0.80,
+        "support_ratio": 0.60,
         "support_distribution": {
         "alpha": 6,
         "beta": 2},
         "oppose_distribution": {
         "alpha": 8,
         "beta": 2}}
+        if self.debug:
+            self.period_num: int = 2
+            self.run_num: int = 1
+            self.agent_num: int = 10
+            self.initial_infected_pecentage: float = 0.3
+            self.seed_size =3
+            Scenario.stance_params = {
+            "support_ratio": 0.60,
+            "support_distribution": {
+            "alpha": 6,
+            "beta": 2},
+            "oppose_distribution": {
+            "alpha": 2,
+            "beta": 7}}
         # self.stance_strength_method = "degree"
         self.alpha_degree = 0.2
         self.observation_window = 5

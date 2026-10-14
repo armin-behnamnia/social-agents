@@ -328,9 +328,15 @@ class LLMEnvironment(Environment):
         #print("alteration_degree after seueeze: ", self.alteration_degree )
         # print(self.alteration_degree)
 
-    def save_diffusion_events(self):
+    def save_diffusion_events(self, method):
+        output_dir = f"data/output_{method}"
+        os.makedirs(output_dir, exist_ok=True)
 
-        filename = (f"data/output/"f"diffusion_events_"f"{self.scenario.id}.csv")
+        filename = os.path.join(
+            output_dir,
+            f"diffusion_events_{self.scenario.id}.csv"
+        )
+        #filename = (f"data/output/"f"diffusion_events_"f"{self.scenario.id}.csv")
 
         print("\n===== SAVE DIFFUSION EVENTS =====")
         print("Number of events:", len(self.diffusion_events))
@@ -350,7 +356,10 @@ class LLMEnvironment(Environment):
         print("Diffusion events saved successfully.")
         print("=================================\n")
 
-        filename = (f"data/output/"f"Message_events_"f"{self.scenario.id}.csv")
+        filename = os.path.join(
+            output_dir,
+            f"Message_events_{self.scenario.id}.csv"
+        )
 
         print("\n===== SAVE Message EVENTS =====")
         print("Number of events:", len(self.message_events))

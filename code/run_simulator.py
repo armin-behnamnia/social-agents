@@ -32,7 +32,7 @@ def main():
         scenario_cls=LLMScenario,
         data_loader_cls=LLMDataLoader,
         visualizer_cls=LLMVisualizer,
-        method = argparse
+        method=args.method
     )
 
     simulator.run()
