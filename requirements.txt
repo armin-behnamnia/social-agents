@@ -1,0 +1,25 @@
+# social-agents — project dependencies
+#
+# Installed into the project-local virtualenv (./\.venv):
+#   /opt/conda/bin/python -m venv .venv
+#   .venv/bin/pip install -r requirements.txt
+#
+# The PyPI mirror is pinned in .venv/pip.conf (index-url + trusted-host),
+# so no extra flags are needed. Recreate with:
+#   rm -rf .venv && /opt/conda/bin/python -m venv .venv \
+#     && cp <this dir>/pip.conf .venv/pip.conf \
+#     && .venv/bin/pip install -r requirements.txt
+
+# --- core: simulation + RL training ---
+numpy<2
+torch==2.13.0
+gymnasium>=1.0
+openai>=1.0
+
+# --- visualisation (code/visualize.py) ---
+matplotlib>=3.7
+networkx>=3.0
+pillow>=10.0
+
+# --- tests ---
+pytest>=8.0

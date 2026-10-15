@@ -18,3 +18,6 @@ models/
 *.npz
 *.pt
 *.ckpt
+
+# offline shims for missing openai/gymnasium packages
+.shims/

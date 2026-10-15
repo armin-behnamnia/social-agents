@@ -30,6 +30,8 @@ def main() -> int:
     p.add_argument("--n-persuaders", type=int, default=5)
     p.add_argument("--topology", type=str, default="erdos_renyi")
     p.add_argument("--n-periods", type=int, default=10)
+    p.add_argument("--target-selection", type=str, default="learned")
+    p.add_argument("--obs-mode", type=str, default="matrix")
     args = p.parse_args()
 
     cfg = PPOConfig(
@@ -47,7 +49,8 @@ def main() -> int:
             n_periods=cfg.n_periods,
             topology=cfg.topology,
             topic=cfg.topic,
-            target_selection="learned",
+            target_selection=args.target_selection,
+            obs_mode=args.obs_mode,
             reward_cascade_discount=cfg.reward_cascade_discount,
             message_cost=cfg.message_cost,
             shaping_accept_bonus=cfg.shaping_accept_bonus,

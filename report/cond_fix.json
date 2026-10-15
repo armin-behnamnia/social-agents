@@ -1,0 +1,552 @@
+{
+ "metrics": {
+  "base": {
+   "0": {
+    "pair_cos_mean": 0.313,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 29.3,
+    "pca": {
+     "pc1": 0.115,
+     "pc5": 0.337,
+     "pc10": 0.467
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.338,
+      "across": 0.301,
+      "gap": 0.037,
+      "nn_purity": 0.55
+     },
+     "tone": {
+      "within": 0.327,
+      "across": 0.309,
+      "gap": 0.018,
+      "nn_purity": 0.456
+     },
+     "emphasis": {
+      "within": 0.336,
+      "across": 0.308,
+      "gap": 0.029,
+      "nn_purity": 0.322
+     },
+     "intensity": {
+      "within": 0.319,
+      "across": 0.31,
+      "gap": 0.009,
+      "nn_purity": 0.394
+     }
+    },
+    "judge": {
+     "mean": 0.803,
+     "sd": 0.074,
+     "n_unique": 5,
+     "min": 0.5,
+     "max": 0.9,
+     "modal_share": 0.606
+    },
+    "n_unique_openings": 23
+   },
+   "1": {
+    "pair_cos_mean": 0.415,
+    "pair_cos_frac_gt_0.90": 0.001,
+    "effective_rank": 19.6,
+    "pca": {
+     "pc1": 0.188,
+     "pc5": 0.369,
+     "pc10": 0.489
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.438,
+      "across": 0.403,
+      "gap": 0.035,
+      "nn_purity": 0.539
+     },
+     "tone": {
+      "within": 0.456,
+      "across": 0.401,
+      "gap": 0.055,
+      "nn_purity": 0.572
+     },
+     "emphasis": {
+      "within": 0.429,
+      "across": 0.411,
+      "gap": 0.018,
+      "nn_purity": 0.306
+     },
+     "intensity": {
+      "within": 0.425,
+      "across": 0.409,
+      "gap": 0.016,
+      "nn_purity": 0.472
+     }
+    },
+    "judge": {
+     "mean": 0.864,
+     "sd": 0.067,
+     "n_unique": 6,
+     "min": 0.5,
+     "max": 1.0,
+     "modal_share": 0.711
+    },
+    "n_unique_openings": 12
+   },
+   "2": {
+    "pair_cos_mean": 0.566,
+    "pair_cos_frac_gt_0.90": 0.003,
+    "effective_rank": 22.4,
+    "pca": {
+     "pc1": 0.135,
+     "pc5": 0.386,
+     "pc10": 0.545
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.589,
+      "across": 0.556,
+      "gap": 0.033,
+      "nn_purity": 0.639
+     },
+     "tone": {
+      "within": 0.586,
+      "across": 0.56,
+      "gap": 0.025,
+      "nn_purity": 0.489
+     },
+     "emphasis": {
+      "within": 0.58,
+      "across": 0.563,
+      "gap": 0.017,
+      "nn_purity": 0.306
+     },
+     "intensity": {
+      "within": 0.571,
+      "across": 0.564,
+      "gap": 0.007,
+      "nn_purity": 0.439
+     }
+    },
+    "judge": {
+     "mean": 0.882,
+     "sd": 0.045,
+     "n_unique": 4,
+     "min": 0.7,
+     "max": 1.0,
+     "modal_share": 0.811
+    },
+    "n_unique_openings": 8
+   }
+  },
+  "ex": {
+   "0": {
+    "pair_cos_mean": 0.344,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 23.4,
+    "pca": {
+     "pc1": 0.154,
+     "pc5": 0.361,
+     "pc10": 0.496
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.428,
+      "across": 0.303,
+      "gap": 0.126,
+      "nn_purity": 0.906
+     },
+     "tone": {
+      "within": 0.355,
+      "across": 0.34,
+      "gap": 0.015,
+      "nn_purity": 0.494
+     },
+     "emphasis": {
+      "within": 0.373,
+      "across": 0.337,
+      "gap": 0.036,
+      "nn_purity": 0.472
+     },
+     "intensity": {
+      "within": 0.35,
+      "across": 0.341,
+      "gap": 0.009,
+      "nn_purity": 0.35
+     }
+    },
+    "judge": {
+     "mean": 0.779,
+     "sd": 0.069,
+     "n_unique": 4,
+     "min": 0.6,
+     "max": 0.9,
+     "modal_share": 0.644
+    },
+    "n_unique_openings": 38
+   },
+   "1": {
+    "pair_cos_mean": 0.353,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 35.1,
+    "pca": {
+     "pc1": 0.095,
+     "pc5": 0.293,
+     "pc10": 0.438
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.421,
+      "across": 0.319,
+      "gap": 0.101,
+      "nn_purity": 0.956
+     },
+     "tone": {
+      "within": 0.368,
+      "across": 0.348,
+      "gap": 0.02,
+      "nn_purity": 0.5
+     },
+     "emphasis": {
+      "within": 0.376,
+      "across": 0.347,
+      "gap": 0.029,
+      "nn_purity": 0.461
+     },
+     "intensity": {
+      "within": 0.361,
+      "across": 0.349,
+      "gap": 0.012,
+      "nn_purity": 0.361
+     }
+    },
+    "judge": {
+     "mean": 0.777,
+     "sd": 0.078,
+     "n_unique": 4,
+     "min": 0.6,
+     "max": 0.9,
+     "modal_share": 0.589
+    },
+    "n_unique_openings": 41
+   },
+   "2": {
+    "pair_cos_mean": 0.358,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 23.6,
+    "pca": {
+     "pc1": 0.142,
+     "pc5": 0.372,
+     "pc10": 0.496
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.454,
+      "across": 0.311,
+      "gap": 0.143,
+      "nn_purity": 0.917
+     },
+     "tone": {
+      "within": 0.37,
+      "across": 0.354,
+      "gap": 0.015,
+      "nn_purity": 0.489
+     },
+     "emphasis": {
+      "within": 0.382,
+      "across": 0.352,
+      "gap": 0.03,
+      "nn_purity": 0.5
+     },
+     "intensity": {
+      "within": 0.366,
+      "across": 0.354,
+      "gap": 0.012,
+      "nn_purity": 0.389
+     }
+    },
+    "judge": {
+     "mean": 0.856,
+     "sd": 0.058,
+     "n_unique": 4,
+     "min": 0.6,
+     "max": 0.9,
+     "modal_share": 0.589
+    },
+    "n_unique_openings": 39
+   }
+  },
+  "bon_judge": {
+   "0": {
+    "pair_cos_mean": 0.334,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 29.3,
+    "pca": {
+     "pc1": 0.135,
+     "pc5": 0.312,
+     "pc10": 0.444
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.389,
+      "across": 0.307,
+      "gap": 0.082,
+      "nn_purity": 0.8
+     },
+     "tone": {
+      "within": 0.341,
+      "across": 0.332,
+      "gap": 0.009,
+      "nn_purity": 0.311
+     },
+     "emphasis": {
+      "within": 0.357,
+      "across": 0.329,
+      "gap": 0.028,
+      "nn_purity": 0.372
+     },
+     "intensity": {
+      "within": 0.339,
+      "across": 0.332,
+      "gap": 0.007,
+      "nn_purity": 0.389
+     }
+    },
+    "judge": {
+     "mean": 0.841,
+     "sd": 0.052,
+     "n_unique": 3,
+     "min": 0.7,
+     "max": 0.9,
+     "modal_share": 0.567
+    },
+    "n_unique_openings": 95
+   },
+   "1": {
+    "pair_cos_mean": 0.342,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 42.5,
+    "pca": {
+     "pc1": 0.078,
+     "pc5": 0.267,
+     "pc10": 0.392
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.384,
+      "across": 0.322,
+      "gap": 0.062,
+      "nn_purity": 0.772
+     },
+     "tone": {
+      "within": 0.351,
+      "across": 0.34,
+      "gap": 0.011,
+      "nn_purity": 0.35
+     },
+     "emphasis": {
+      "within": 0.367,
+      "across": 0.336,
+      "gap": 0.031,
+      "nn_purity": 0.444
+     },
+     "intensity": {
+      "within": 0.349,
+      "across": 0.339,
+      "gap": 0.01,
+      "nn_purity": 0.367
+     }
+    },
+    "judge": {
+     "mean": 0.848,
+     "sd": 0.05,
+     "n_unique": 2,
+     "min": 0.8,
+     "max": 0.9,
+     "modal_share": 0.517
+    },
+    "n_unique_openings": 81
+   },
+   "2": {
+    "pair_cos_mean": 0.354,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 31.8,
+    "pca": {
+     "pc1": 0.115,
+     "pc5": 0.316,
+     "pc10": 0.435
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.417,
+      "across": 0.324,
+      "gap": 0.094,
+      "nn_purity": 0.839
+     },
+     "tone": {
+      "within": 0.361,
+      "across": 0.352,
+      "gap": 0.008,
+      "nn_purity": 0.361
+     },
+     "emphasis": {
+      "within": 0.376,
+      "across": 0.349,
+      "gap": 0.026,
+      "nn_purity": 0.417
+     },
+     "intensity": {
+      "within": 0.359,
+      "across": 0.352,
+      "gap": 0.007,
+      "nn_purity": 0.406
+     }
+    },
+    "judge": {
+     "mean": 0.897,
+     "sd": 0.029,
+     "n_unique": 3,
+     "min": 0.8,
+     "max": 1.0,
+     "modal_share": 0.917
+    },
+    "n_unique_openings": 76
+   }
+  },
+  "bon_faithful": {
+   "0": {
+    "pair_cos_mean": 0.302,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 30.7,
+    "pca": {
+     "pc1": 0.134,
+     "pc5": 0.299,
+     "pc10": 0.424
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.36,
+      "across": 0.274,
+      "gap": 0.086,
+      "nn_purity": 0.833
+     },
+     "tone": {
+      "within": 0.31,
+      "across": 0.3,
+      "gap": 0.01,
+      "nn_purity": 0.322
+     },
+     "emphasis": {
+      "within": 0.331,
+      "across": 0.295,
+      "gap": 0.035,
+      "nn_purity": 0.433
+     },
+     "intensity": {
+      "within": 0.311,
+      "across": 0.298,
+      "gap": 0.014,
+      "nn_purity": 0.428
+     }
+    },
+    "judge": {
+     "mean": 0.779,
+     "sd": 0.078,
+     "n_unique": 5,
+     "min": 0.5,
+     "max": 0.9,
+     "modal_share": 0.572
+    },
+    "n_unique_openings": 85
+   },
+   "1": {
+    "pair_cos_mean": 0.33,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 47.3,
+    "pca": {
+     "pc1": 0.069,
+     "pc5": 0.244,
+     "pc10": 0.367
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.378,
+      "across": 0.307,
+      "gap": 0.07,
+      "nn_purity": 0.817
+     },
+     "tone": {
+      "within": 0.338,
+      "across": 0.328,
+      "gap": 0.01,
+      "nn_purity": 0.367
+     },
+     "emphasis": {
+      "within": 0.351,
+      "across": 0.325,
+      "gap": 0.026,
+      "nn_purity": 0.35
+     },
+     "intensity": {
+      "within": 0.337,
+      "across": 0.327,
+      "gap": 0.01,
+      "nn_purity": 0.344
+     }
+    },
+    "judge": {
+     "mean": 0.772,
+     "sd": 0.088,
+     "n_unique": 5,
+     "min": 0.5,
+     "max": 0.9,
+     "modal_share": 0.561
+    },
+    "n_unique_openings": 76
+   },
+   "2": {
+    "pair_cos_mean": 0.331,
+    "pair_cos_frac_gt_0.90": 0.0,
+    "effective_rank": 32.2,
+    "pca": {
+     "pc1": 0.12,
+     "pc5": 0.308,
+     "pc10": 0.429
+    },
+    "levels": {
+     "appeal": {
+      "within": 0.393,
+      "across": 0.3,
+      "gap": 0.093,
+      "nn_purity": 0.811
+     },
+     "tone": {
+      "within": 0.338,
+      "across": 0.328,
+      "gap": 0.01,
+      "nn_purity": 0.422
+     },
+     "emphasis": {
+      "within": 0.356,
+      "across": 0.325,
+      "gap": 0.031,
+      "nn_purity": 0.45
+     },
+     "intensity": {
+      "within": 0.336,
+      "across": 0.328,
+      "gap": 0.008,
+      "nn_purity": 0.439
+     }
+    },
+    "judge": {
+     "mean": 0.848,
+     "sd": 0.066,
+     "n_unique": 5,
+     "min": 0.6,
+     "max": 1.0,
+     "modal_share": 0.539
+    },
+    "n_unique_openings": 86
+   }
+  }
+ }
+}

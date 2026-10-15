@@ -21,6 +21,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -39,7 +41,8 @@ from .torch_trainer import (
 
 def build_env(cfg: PPOConfig, observer_inference: bool = False,
               target_selection: str = "learned",
-              obs_mode: str = "matrix") -> ElitePersuaderEnv:
+              obs_mode: str = "matrix",
+              judge_fn=None) -> ElitePersuaderEnv:
     scenario = LLMScenario(
         agent_num=cfg.agent_num,
         # Observer-side inference (Prompt 5) is not used by the RL
@@ -60,6 +63,7 @@ def build_env(cfg: PPOConfig, observer_inference: bool = False,
         shaping_accept_bonus=cfg.shaping_accept_bonus,
         persuade_all_neighbors=cfg.persuade_all_neighbors,
         n_persuaders=cfg.n_persuaders,
+        judge_fn=judge_fn,
     )
 
 
@@ -113,6 +117,73 @@ def ping_llm() -> bool:
     except Exception as exc:  # noqa: BLE001
         print(f"[!] LLM ping failed: {exc}", file=sys.stderr)
         return False
+
+
+def reconstruct_history(log_path: str | Path) -> list[dict]:
+    """Rebuild the per-iteration training records from a stdout run log.
+
+    `train_persuader` writes `training_log.json` only when training
+    finishes; an interrupted process therefore loses its in-memory
+    history. This parses the human-readable log lines emitted by
+    `PPOTrainer.train` (logged every `log_every` iters) plus the greedy
+    eval lines, so a resumed run can produce a complete curve.
+    """
+    # Preferred source: a `training_log.json` written incrementally by a
+    # run that was interrupted (it carries the full per-iteration record,
+    # including entropy/KL). Fall back to parsing the human-readable log.
+    path = Path(log_path)
+    text = path.read_text()
+    if path.suffix == ".json":
+        try:
+            prior = json.loads(text).get("history", [])
+            if prior:
+                return prior
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    iter_re = re.compile(
+        r"iter (\d+)/\d+ reward=(-?[\d.]+) final_stance=(\S+) "
+        r"adopted=(-?[\d.]+) pi_loss=(-?[\d.]+) v_loss=(-?[\d.eE+]+)"
+        r"(?: ent=([\d.]+))?.*?\(([\d.]+)s\)"
+    )
+    eval_re = re.compile(r"eval @ (\d+): greedy mean reward (-?[\d.]+)")
+
+    def _f(tok: str):
+        try:
+            return float(tok)
+        except (ValueError, TypeError):
+            return None
+
+    records: dict[int, dict] = {}
+    for line in text.splitlines():
+        m = iter_re.search(line)
+        if m:
+            it = int(m.group(1))
+            records[it] = {
+                "iteration": it,
+                "mean_episode_reward": float(m.group(2)),
+                "mean_final_stance": _f(m.group(3)),
+                "mean_adopted": float(m.group(4)),
+                "train_pi_loss": float(m.group(5)),
+                "train_v_loss": float(m.group(6)),
+                "train_entropy": _f(m.group(7)),
+                "train_kl": None,
+                "elapsed_s": float(m.group(8)),
+                "reconstructed_from_log": True,
+            }
+            continue
+        m = eval_re.search(line)
+        if m:
+            it = int(m.group(1))
+            records.setdefault(
+                it,
+                {
+                    "iteration": it,
+                    "reconstructed_from_log": True,
+                },
+            )
+            records[it]["eval_greedy_reward"] = float(m.group(2))
+    return [records[k] for k in sorted(records)]
 
 
 def warmup_render_cache(cfg: "PPOConfig", workers: int | None = None) -> None:
@@ -229,6 +300,17 @@ def main() -> int:
              "on-disk LLM cache before training (parallel); training "
              "renders then become instant cache hits",
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="resume training from <output-dir>/policy.pt instead of "
+             "starting fresh (weights + optimizer state + iteration)",
+    )
+    parser.add_argument(
+        "--resume-log", type=str, default=None,
+        help="path to a previous run's stdout log; its per-iteration "
+             "records are prepended to training_log.json so a resumed "
+             "run keeps the full curve",
+    )
     parser.add_argument("--agent-num", type=int, default=None)
     parser.add_argument("--n-persuaders", type=int, default=None,
                         help="RL-controlled seed agents (shared policy)")
@@ -244,6 +326,16 @@ def main() -> int:
                         help="matrix / summary / pair "
                              "(pair requires random_neighbor)")
     parser.add_argument("--n-periods", type=int, default=None)
+    parser.add_argument("--judge", choices=["absolute", "bt"],
+                        default="absolute",
+                        help="persuasiveness reward model: the absolute "
+                             "LLM score, or a Bradley-Terry pairwise judge")
+    parser.add_argument("--bt-table", type=str, default=None,
+                        help="path to a BT reward-model table (built if "
+                             "absent); defaults to <output-dir>/bt_judge.json")
+    parser.add_argument("--bt-opponents", type=int, default=10,
+                        help="pairwise comparisons per message when "
+                             "building the BT table")
     parser.add_argument("--device", type=str, default=None,
                         help="cuda / cpu (default: auto)")
     parser.add_argument("--output-dir", type=str, default=None)
@@ -252,6 +344,29 @@ def main() -> int:
         "--with-observer", action="store_true",
         help="enable observer-side inference (Prompt 5) during training "
              "(3 extra LLM calls per adoption; only for analysis runs)",
+    )
+    parser.add_argument(
+        "--no-factorized-policy", action="store_true",
+        help="use a flat policy head instead of the factorized "
+             "(target x appeal x tone x emphasis x intensity) heads",
+    )
+    parser.add_argument(
+        "--entropy-coef-start", type=float, default=None,
+        help="entropy bonus at iteration 1, linearly annealed to "
+             "--entropy-coef-end (default 0.05 -> 0.005)",
+    )
+    parser.add_argument(
+        "--entropy-coef-end", type=float, default=None,
+        help="entropy bonus at the final iteration (see --entropy-coef-start)",
+    )
+    parser.add_argument(
+        "--paired-eval-every", type=int, default=None,
+        help="run a paired greedy/random/heuristic evaluation (shared "
+             "seeds, lower variance) every N iterations (0=off)",
+    )
+    parser.add_argument(
+        "--paired-eval-episodes", type=int, default=None,
+        help="episodes per paired evaluation",
     )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
@@ -299,6 +414,16 @@ def main() -> int:
         cfg.output_dir = args.output_dir
     if args.seed is not None:
         cfg.seed = args.seed
+    if args.no_factorized_policy:
+        cfg.factorized_policy = False
+    if args.entropy_coef_start is not None:
+        cfg.entropy_coef_start = args.entropy_coef_start
+    if args.entropy_coef_end is not None:
+        cfg.entropy_coef_end = args.entropy_coef_end
+    if args.paired_eval_every is not None:
+        cfg.paired_eval_every = args.paired_eval_every
+    if args.paired_eval_episodes is not None:
+        cfg.paired_eval_episodes = args.paired_eval_episodes
     if args.mode == "mock":
         cfg.output_dir = str(Path(cfg.output_dir) / "mock")
 
@@ -309,6 +434,34 @@ def main() -> int:
         f"iters={cfg.iterations} x {cfg.episodes_per_iteration} episodes "
         f"workers={cfg.rollout_workers}"
     )
+    print(f"[*] strategy space: {N_STRATEGIES} arms "
+          f"(PERSUASION_STRATEGY_SPACE="
+          f"{os.environ.get('PERSUASION_STRATEGY_SPACE', 'v1')}), "
+          f"judge={args.judge}")
+
+    # reward model: Bradley-Terry pairwise judge (optional) ------------
+    judge_fn = None
+    if args.judge == "bt" and args.mode == "live":
+        from .bt_judge import BTJudge, build_table
+        from .profiles import generate_synthetic_profiles
+        from .strategy import all_strategies
+
+        table_path = Path(args.bt_table) if args.bt_table else (
+            Path(cfg.output_dir) / "bt_judge.json"
+        )
+        if table_path.is_file():
+            judge_fn = BTJudge.load(table_path)
+            print(f"[+] loaded BT judge ({len(judge_fn.table)} entries, "
+                  f"SD {judge_fn.stats.get('score_sd')}) from {table_path}")
+        else:
+            profiles = generate_synthetic_profiles(cfg.agent_num, seed=1234)
+            judge_fn = build_table(
+                all_strategies(), profiles, topic=cfg.topic,
+                n_opponents=args.bt_opponents,
+                workers=cfg.rollout_workers,
+            )
+            judge_fn.save(table_path)
+            print(f"[+] built BT judge ({judge_fn.stats}) -> {table_path}")
 
     # cache warmup: pre-render the full (strategy x profile) matrix ----
     if args.warmup_cache and args.mode == "live":
@@ -319,6 +472,7 @@ def main() -> int:
         observer_inference=args.with_observer,
         target_selection=args.target_selection,
         obs_mode=args.obs_mode,
+        judge_fn=judge_fn,
     )
     trainer = PPOTrainer(
         env,
@@ -327,12 +481,30 @@ def main() -> int:
             cfg,
             target_selection=args.target_selection,
             obs_mode=args.obs_mode,
+            judge_fn=judge_fn,
         ),
     )
     print(f"[*] training on device: {trainer.device}; "
           f"action_space={env.action_space.n} obs={env.observation_space.shape}")
 
-    policy, history = trainer.train()
+    # resume from a checkpoint if requested ----------------------------
+    resume_from = None
+    prior_history = None
+    if args.resume:
+        resume_from = Path(cfg.output_dir) / "policy.pt"
+        if not resume_from.is_file():
+            print(f"[!] --resume set but no checkpoint at {resume_from}",
+                  file=sys.stderr)
+            return 2
+        if args.resume_log:
+            prior_history = reconstruct_history(args.resume_log)
+            print(f"[*] reconstructed {len(prior_history)} prior iteration "
+                  f"records from {args.resume_log}")
+
+    policy, history = trainer.train(
+        resume_from=resume_from, prior_history=prior_history
+    )
+    print(f"[*] training complete: {len(history)} iterations recorded")
 
     # final comparison ---------------------------------------------------
     eval_score = trainer.evaluate(episodes=cfg.eval_episodes)

@@ -366,7 +366,21 @@ def render_strategy_message(
     Results are cached on disk keyed by (strategy, profile, topic):
     the profile pool is finite, so the cache quickly covers the full
     (strategy x target) matrix and renders become instant.
+
+    Two strategy spaces are supported transparently: the v2
+    relevance-conditioned space carries its own prompt
+    (``strategy_spec.render_prompt``); the v1 grid is rendered inline.
     """
+    render_prompt = getattr(strategy_spec, "render_prompt", None)
+    if callable(render_prompt):
+        prompt = render_prompt(
+            target_profile, topic=topic, stance_direction=stance_direction
+        )
+        return call_llm(
+            prompt,
+            temperature=0.0,
+            max_tokens=GLOBAL_LLM_CONFIG.generation_max_tokens,
+        )
     prompt = f"""You are crafting a persuasive social-media message.
 
 Persuasion strategy:

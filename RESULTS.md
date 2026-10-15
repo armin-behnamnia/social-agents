@@ -161,26 +161,71 @@ only the strategy (`Discrete(180)`), observing a 26-d vector
 Fixes the collapse structurally (disjoint neighborhoods), shrinks the
 action space 50×, and matches the intended interaction protocol.
 
-## Run ppo5p_rn/live_run1 — random-neighbor target + learned strategy
+## Run ppo5p_rn/live_run1 — random-neighbor target + learned strategy (COMPLETE)
 
-IN PROGRESS at report time (230/300 iterations; 8 eps/iter; 8 workers;
-render+judge caches warm). Greedy-eval trajectory (8 episodes each):
+Finished 2026-10-12 (300/300 iterations; 8 eps/iter; 8 workers;
+render+judge caches warm; resumed from a checkpoint at iter 260).
+Greedy-eval trajectory (10 episodes each, full run):
 
-| iter | 20 | 60 | 100 | 140 | 180 | 220 |
-|---|---|---|---|---|---|---|
-| eval | 8.63 | 10.42 | 10.49 | 10.14 | **11.06** | 10.45 |
+| iter | 20 | 40 | 60 | 80 | 100 | 120 | 140 | 160 | 180 | 200 | 220 | 240 | 260 | 280 | 300 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| eval | 8.63 | 8.55 | 10.42 | 9.49 | 10.49 | 10.66 | 10.14 | 9.81 | **11.06** | 10.20 | 10.45 | 10.55 | 10.43 | **11.71** | 10.19 |
 
-First-3 evals mean 8.94 → last-3 mean 10.57 (+18%): **the first rising
-evaluation curve across both campaigns** (all campaign-1 runs were
-flat). Training reward ≈ 9.9–10.4/episode; adoptions ≈ 14–16 of 50;
-mean final stance ≈ 0.19 (from +0.65). Value loss settled 3.8 → ~0.3;
-no divergence, healthy entropy.
+Early rise is real (first-3 evals mean 9.20 → last-3 mean 10.78, +17%),
+and it **does survive rigorous evaluation**. The auto-written
+`results.json` uses *unpaired* seeds (learned 900k, random 700k,
+heuristic 600k) and only 10 episodes; per-episode σ is ≈1.5, so those
+baselines are badly noise-limited and are **superseded** by the paired
+evaluation below.
 
-Artifacts: `output/ppo5p_rn/live_run1/training_progress.png`
-(live-parsed 4-panel chart), `viz/trained_at210/` and `viz/random/`
+### Paired evaluation (the verdict) — `results_final.json`
+
+`code/eval_final.py`, 50 seeds shared by all three policies
+(`--episodes 50 --workers 8`, observer inference off to match training):
+
+| Policy | Reward (50 eps) | SE |
+|---|---|---|
+| Random | 10.038 | 0.204 |
+| **Learned greedy** | **10.625** | 0.221 |
+| Heuristic | 10.520 | 0.217 |
+
+| Paired comparison | Δ | SE | t | wins |
+|---|---|---|---|---|
+| learned − random | **+0.587 (+5.8%)** | 0.122 | **4.81** | 39/50 |
+| learned − heuristic | +0.105 (+1.0%) | 0.152 | 0.69 | 30/50 |
+
+**The learned policy significantly beats uniform-random strategy
+(+5.8%, t = 4.8, winning 39/50 paired seeds) and is statistically tied
+with the fixed-mid-strategy heuristic (+1.0%, t = 0.69).** This is the
+first statistically firm positive result across both campaigns — but a
+modest one: RL adds real signal over chance and does **not** clearly
+exceed a well-chosen constant strategy.
+
+(The unpaired `results.json` reported learned *losing* to the heuristic
+by −5.1% and barely beating random. That was an artifact of σ ≈ 1.5 with
+only 10 independent-seed episodes; the paired design removes the
+between-seed variance and is the correct comparison.)
+
+**Interpretation.** In `random_neighbor` mode the only learned degree of
+freedom is the strategy (on a randomly drawn neighbor), and the policy
+converged onto a single strategy family — so the achievable ceiling is
+"a good constant," exactly what the heuristic is. Beating random by a
+significant margin shows the strategy signal is real and learnable;
+failing to beat the heuristic shows PPO found *a* good constant, not the
+best one. Consistent with campaign 1: RL's edge tracks how strongly the
+reward couples to a genuinely policy-controlled decision.
+
+**Revised campaign-2 headline:** the random-neighbor protocol fixed the
+mode-collapse **and** produced the first significant learning signal
+(+5.8% over random, paired), but because target selection was removed the
+learned policy only matches — does not exceed — the best fixed strategy.
+Next lever: restore a policy-controlled decision the reward tracks
+strongly, with disjointness constraints to avoid the earlier collapse.
+
+Artifacts: `output/ppo5p_rn/live_run1/{policy.pt,training_log.json,results.json,results_final.json}`
+(the two result files written at completion / by the paired re-eval),
+`training_progress.png`, `viz/trained_at210/` and `viz/random/`
 (GIF + interactive HTML action/event log + trajectory.json).
-Formal baselines (results.json) are written automatically at iter 300;
-the final section will be updated on completion.
 
 Episode replays (same network + persona seed, live LLM, 10 periods):
 
@@ -194,8 +239,84 @@ specified: each persuader hits a *distinct own-neighbor* every period
 (no more stacked targeting). One caveat visible in the frames: the
 learned policy has converged onto a single strategy family
 (ethos/confident) for (almost) all pairs — strategy-level convergence
-without target stacking. Single-episode numbers are illustrative; the
-formal comparison is the 8+ episode eval/baselines at completion.
+without target stacking. This replay happens to favor the trained
+policy, but single-episode numbers are illustrative only: the paired
+50-episode evaluation (above) is the formal comparison — the learned
+policy significantly beats random and statistically ties the heuristic.
 
 Artifacts (rewatch): `output/ppo5p_rn/live_run1/viz/trained_at210/`
 and `.../viz/random/` — `episode.html` is self-contained.
+
+---
+
+# Campaign 3 — repaired readout (Bradley–Terry) + redesigned strategy space
+
+Date: 2026-10-14. The campaign-2 ceiling analysis pinned the binding
+defect on the **reward channel** (#2) — the frozen LLM judge collapsed
+180 distinct messages onto 4–6 scores, so changing the action barely
+changed the reward. Campaign 3 attacks that directly and redefines the
+action.
+
+## 1. New action space (v2) — `code/strategy_v2.py`
+
+Action = **angle** (6: cost / safety / fairness / freedom / community /
+effectiveness) × **evidence** (4: statistic / expert / anecdote / peers)
+× **address** (3: taxpayer / parent / worker) = **72 arms**, each with a
+checkable render constraint (digit ⇒ statistic, named source ⇒ expert,
+first-person detail ⇒ anecdote). Selected with
+`PERSUASION_STRATEGY_SPACE=v2` (v1's 180-arm grid stays the default).
+Pilot realisability (nearest-neighbour purity, chance in parens):
+angle **0.85** (0.17), address **0.77** (0.33), evidence 0.27 (0.25) —
+the concrete slots are adopted by the generator; the old `emphasis` had
+sat at chance.
+
+## 2. Bradley–Terry pairwise judge — `code/bt_judge.py`
+
+3,600 (post, target) arms played off head-to-head (31,084 comparisons),
+Bradley–Terry fit, scores shifted to the absolute judge's mean. The
+readout repair is large and reaches all the way to the network reward:
+
+| Readout | Score SD | Distinct scores | Modal bucket share | Landscape spread | Spread ÷ SE |
+|---|---|---|---|---|---|
+| absolute 0–10 judge | 0.072 | 4–6 | 54% @ 0.90 | ~0.90 | ≈ 1× |
+| **Bradley–Terry** | **0.233** | **691** | **32% @ 0.98** | **p10–p90 7.59** | **≈ 18×** |
+
+Variance decomposition of the BT score: **49.5%** action main effect,
+**0.0%** target main effect (comparisons are within-target by
+construction), **50.5%** target × action interaction.
+
+Network-reward landscape (all five persuaders fixed to one arm, 8 paired
+seeds, `report/strategy_value_bt.json`): mean **7.62**, SD **3.04**,
+range **10.58**, per-episode SE **0.43**. Best single constant
+**12.80** = `safety / anecdote / worker`; worst **2.22** =
+`freedom / expert / parent`. Structure is clean and interpretable —
+**every top-5 arm addresses the worker; every bottom-5 is the freedom
+angle**.
+
+**Caveat (the open question).** The *per-target* oracle only beats the
+best constant by **+0.006** in score, because the best constant already
+sits near the 1.0 ceiling. So BT now ranks **actions** sharply but still
+barely rewards **matching the target** — target × action conditioning of
+the *readout* remains weak. Campaign 3 tests whether the reward-scale
+signal (gravity ≈ 18× SE) is enough for PPO to climb.
+
+## 3. Training run — `output/ppo_v2_bt/live_run2` (in progress)
+
+v2 space + BT judge, 300 iters × 32 eps = **9,600 episodes**, 160
+rollout workers, paired eval every 20.
+
+**Compute note (why not the planned 300 × 320).** Live episodes are
+dominated by crowd-agent generation: `generate_response_message` embeds
+`delta_stance` at 4 decimals, so it is uncacheable across episode seeds
+and every episode fires ~40 fresh LLM calls. Measured throughput on this
+box: **29.7 s/episode serial, 2.27 s/ep @ 48 workers, 1.59 s/ep @ 192**
+(the remote server saturates at ~26 req/s). The first launch at
+96,000 episodes projected to **~60–70 h** and was killed; the shipped
+config (9,600) fits in ~4–5 h at >300 episodes/iteration-equivalent.
+Cache-warming via `delta` quantisation is the obvious next speedup if a
+much larger budget is wanted.
+
+Verdict (learned vs random vs heuristic under BT, paired 50 seeds) to be
+recorded here when the run completes. The report mirror of this section
+lives in `report/index.html` → *Appendix: a strategy definition that can
+carry learnable variation*.

@@ -1,0 +1,464 @@
+{
+ "n_personas": 12,
+ "arms": [
+  [
+   "cost",
+   "statistic",
+   "taxpayer"
+  ],
+  [
+   "cost",
+   "statistic",
+   "parent"
+  ],
+  [
+   "cost",
+   "statistic",
+   "worker"
+  ],
+  [
+   "cost",
+   "expert",
+   "taxpayer"
+  ],
+  [
+   "cost",
+   "expert",
+   "parent"
+  ],
+  [
+   "cost",
+   "expert",
+   "worker"
+  ],
+  [
+   "cost",
+   "anecdote",
+   "taxpayer"
+  ],
+  [
+   "cost",
+   "anecdote",
+   "parent"
+  ],
+  [
+   "cost",
+   "anecdote",
+   "worker"
+  ],
+  [
+   "cost",
+   "peers",
+   "taxpayer"
+  ],
+  [
+   "cost",
+   "peers",
+   "parent"
+  ],
+  [
+   "cost",
+   "peers",
+   "worker"
+  ],
+  [
+   "safety",
+   "statistic",
+   "taxpayer"
+  ],
+  [
+   "safety",
+   "statistic",
+   "parent"
+  ],
+  [
+   "safety",
+   "statistic",
+   "worker"
+  ],
+  [
+   "safety",
+   "expert",
+   "taxpayer"
+  ],
+  [
+   "safety",
+   "expert",
+   "parent"
+  ],
+  [
+   "safety",
+   "expert",
+   "worker"
+  ],
+  [
+   "safety",
+   "anecdote",
+   "taxpayer"
+  ],
+  [
+   "safety",
+   "anecdote",
+   "parent"
+  ],
+  [
+   "safety",
+   "anecdote",
+   "worker"
+  ],
+  [
+   "safety",
+   "peers",
+   "taxpayer"
+  ],
+  [
+   "safety",
+   "peers",
+   "parent"
+  ],
+  [
+   "safety",
+   "peers",
+   "worker"
+  ],
+  [
+   "fairness",
+   "statistic",
+   "taxpayer"
+  ],
+  [
+   "fairness",
+   "statistic",
+   "parent"
+  ],
+  [
+   "fairness",
+   "statistic",
+   "worker"
+  ],
+  [
+   "fairness",
+   "expert",
+   "taxpayer"
+  ],
+  [
+   "fairness",
+   "expert",
+   "parent"
+  ],
+  [
+   "fairness",
+   "expert",
+   "worker"
+  ],
+  [
+   "fairness",
+   "anecdote",
+   "taxpayer"
+  ],
+  [
+   "fairness",
+   "anecdote",
+   "parent"
+  ],
+  [
+   "fairness",
+   "anecdote",
+   "worker"
+  ],
+  [
+   "fairness",
+   "peers",
+   "taxpayer"
+  ],
+  [
+   "fairness",
+   "peers",
+   "parent"
+  ],
+  [
+   "fairness",
+   "peers",
+   "worker"
+  ],
+  [
+   "freedom",
+   "statistic",
+   "taxpayer"
+  ],
+  [
+   "freedom",
+   "statistic",
+   "parent"
+  ],
+  [
+   "freedom",
+   "statistic",
+   "worker"
+  ],
+  [
+   "freedom",
+   "expert",
+   "taxpayer"
+  ],
+  [
+   "freedom",
+   "expert",
+   "parent"
+  ],
+  [
+   "freedom",
+   "expert",
+   "worker"
+  ],
+  [
+   "freedom",
+   "anecdote",
+   "taxpayer"
+  ],
+  [
+   "freedom",
+   "anecdote",
+   "parent"
+  ],
+  [
+   "freedom",
+   "anecdote",
+   "worker"
+  ],
+  [
+   "freedom",
+   "peers",
+   "taxpayer"
+  ],
+  [
+   "freedom",
+   "peers",
+   "parent"
+  ],
+  [
+   "freedom",
+   "peers",
+   "worker"
+  ],
+  [
+   "community",
+   "statistic",
+   "taxpayer"
+  ],
+  [
+   "community",
+   "statistic",
+   "parent"
+  ],
+  [
+   "community",
+   "statistic",
+   "worker"
+  ],
+  [
+   "community",
+   "expert",
+   "taxpayer"
+  ],
+  [
+   "community",
+   "expert",
+   "parent"
+  ],
+  [
+   "community",
+   "expert",
+   "worker"
+  ],
+  [
+   "community",
+   "anecdote",
+   "taxpayer"
+  ],
+  [
+   "community",
+   "anecdote",
+   "parent"
+  ],
+  [
+   "community",
+   "anecdote",
+   "worker"
+  ],
+  [
+   "community",
+   "peers",
+   "taxpayer"
+  ],
+  [
+   "community",
+   "peers",
+   "parent"
+  ],
+  [
+   "community",
+   "peers",
+   "worker"
+  ],
+  [
+   "effectiveness",
+   "statistic",
+   "taxpayer"
+  ],
+  [
+   "effectiveness",
+   "statistic",
+   "parent"
+  ],
+  [
+   "effectiveness",
+   "statistic",
+   "worker"
+  ],
+  [
+   "effectiveness",
+   "expert",
+   "taxpayer"
+  ],
+  [
+   "effectiveness",
+   "expert",
+   "parent"
+  ],
+  [
+   "effectiveness",
+   "expert",
+   "worker"
+  ],
+  [
+   "effectiveness",
+   "anecdote",
+   "taxpayer"
+  ],
+  [
+   "effectiveness",
+   "anecdote",
+   "parent"
+  ],
+  [
+   "effectiveness",
+   "anecdote",
+   "worker"
+  ],
+  [
+   "effectiveness",
+   "peers",
+   "taxpayer"
+  ],
+  [
+   "effectiveness",
+   "peers",
+   "parent"
+  ],
+  [
+   "effectiveness",
+   "peers",
+   "worker"
+  ]
+ ],
+ "realisability": {
+  "angle": {
+   "mean_nn_purity": 0.851,
+   "chance": 0.167
+  },
+  "evidence": {
+   "mean_nn_purity": 0.271,
+   "chance": 0.25
+  },
+  "address": {
+   "mean_nn_purity": 0.765,
+   "chance": 0.333
+  }
+ },
+ "readability": {
+  "mean": 0.774,
+  "sd": 0.095,
+  "n_unique": 6,
+  "modal_share": 0.567
+ },
+ "learnability": {
+  "best_global_angle": "effectiveness",
+  "oracle_gain": 0.012,
+  "angle_spread": 0.103,
+  "n_distinct_best_angle": 2,
+  "best_angle_per_persona": [
+   "effectiveness",
+   "community",
+   "community",
+   "community",
+   "community",
+   "community",
+   "effectiveness",
+   "community",
+   "community",
+   "effectiveness",
+   "effectiveness",
+   "effectiveness"
+  ]
+ },
+ "learnability_content": {
+  "best_global_angle": "cost",
+  "oracle_gain": 0.006,
+  "angle_spread": 0.133,
+  "n_distinct_best_angle": 3,
+  "best_angle_per_persona": [
+   "cost",
+   "cost",
+   "cost",
+   "cost",
+   "cost",
+   "cost",
+   "fairness",
+   "cost",
+   "cost",
+   "cost",
+   "freedom",
+   "cost"
+  ]
+ },
+ "learnability_reward": {
+  "best_global_angle": "community",
+  "oracle_gain": 0.005,
+  "angle_spread": 0.015,
+  "n_distinct_best_angle": 5,
+  "best_angle_per_persona": [
+   "community",
+   "community",
+   "community",
+   "community",
+   "safety",
+   "cost",
+   "fairness",
+   "community",
+   "community",
+   "effectiveness",
+   "community",
+   "fairness"
+  ]
+ },
+ "content_mean": 0.141,
+ "variance_components": {
+  "judge_persona_eta2": 0.055,
+  "judge_angle_eta2": 0.142,
+  "judge_evidence_eta2": 0.042,
+  "judge_address_eta2": 0.159,
+  "judge_persona_x_angle_frac": 0.045,
+  "reward_persona_eta2": 0.076,
+  "reward_angle_eta2": 0.022,
+  "reward_evidence_eta2": 0.042,
+  "reward_address_eta2": 0.265,
+  "reward_persona_x_angle_frac": 0.058
+ },
+ "base_reference": {
+  "judge_sd": 0.062,
+  "judge_modal": 0.709,
+  "emphasis_nn": 0.311,
+  "openings": 14.3
+ }
+}

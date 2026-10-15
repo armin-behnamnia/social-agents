@@ -53,12 +53,17 @@ def install() -> None:
             "combined", received_message, new_post, previous_profile, updated_profile
         )
     )
-    LLM_module.render_strategy_message = (
-        lambda strategy_spec, target_profile, topic="the policy", stance_direction="opposing": (
-            f"[{strategy_spec.appeal}/{strategy_spec.tone}/{strategy_spec.emphasis}"
-            f"/{strategy_spec.intensity:.2f}] message aimed at: {target_profile[:40]}"
-        )
-    )
+    def _mock_render(strategy_spec, target_profile, topic="the policy",
+                     stance_direction="opposing"):
+        if hasattr(strategy_spec, "angle"):  # v2 space
+            tag = (f"{strategy_spec.angle}/{strategy_spec.evidence}"
+                   f"/{strategy_spec.address}")
+        else:  # v1 grid
+            tag = (f"{strategy_spec.appeal}/{strategy_spec.tone}"
+                   f"/{strategy_spec.emphasis}/{strategy_spec.intensity:.2f}")
+        return f"[{tag}] message aimed at: {target_profile[:40]}"
+
+    LLM_module.render_strategy_message = _mock_render
     LLM_module.judge_persuasiveness = (
         lambda message, target_profile: _hash01(
             "judge", message, target_profile

@@ -1,0 +1,218 @@
+{
+ "n_strategies": 180,
+ "personas": [
+  0,
+  1,
+  2
+ ],
+ "per_persona": {
+  "0": {
+   "pair_cos": {
+    "mean": 0.3131595667852049,
+    "median": 0.29222085722130925,
+    "p10": 0.1491138699965088,
+    "p90": 0.503372934522047,
+    "min": 0.007896658727315944,
+    "frac_gt_0.90": 0.00037243947858472997,
+    "frac_gt_0.95": 6.207324643078833e-05
+   },
+   "effective_rank": 29.26469684445493,
+   "pca": {
+    "pc1": 0.11527216360657393,
+    "pc5": 0.3368582628807028,
+    "pc10": 0.4667205530345594
+   },
+   "content_sim": {
+    "mean": 0.16206119564666593,
+    "std": 0.08147378584507962,
+    "min": -0.004270616688870936,
+    "max": 0.41586032230983816,
+    "range": 0.42013093899870907
+   },
+   "content_term_span": 0.052516367374838654,
+   "score": {
+    "mean": 0.8027777777777778,
+    "std": 0.07431666772117405,
+    "min": 0.5,
+    "max": 0.9,
+    "n_unique": 5
+   },
+   "n_unique_messages": 180,
+   "n_unique_openings": 23,
+   "top_openings": [
+    [
+     "i ve seen how",
+     46
+    ],
+    [
+     "i ve seen the",
+     27
+    ],
+    [
+     "i ve watched my",
+     20
+    ],
+    [
+     "i ve spent years",
+     17
+    ],
+    [
+     "i ve spent enough",
+     15
+    ]
+   ]
+  },
+  "1": {
+   "pair_cos": {
+    "mean": 0.41461155055705395,
+    "median": 0.40762656582504464,
+    "p10": 0.2075829099825219,
+    "p90": 0.6220225924131347,
+    "min": 0.04621593097792959,
+    "frac_gt_0.90": 0.0013035381750465549,
+    "frac_gt_0.95": 0.00024829298572315333
+   },
+   "effective_rank": 19.625069293021824,
+   "pca": {
+    "pc1": 0.18795501323789324,
+    "pc5": 0.36879734034900075,
+    "pc10": 0.4889917560825596
+   },
+   "content_sim": {
+    "mean": 0.16943662856060868,
+    "std": 0.05810946790864924,
+    "min": 0.0003289709972966225,
+    "max": 0.2831630258575777,
+    "range": 0.28283405486028107
+   },
+   "content_term_span": 0.03535425685753513,
+   "score": {
+    "mean": 0.8644444444444446,
+    "std": 0.06737058541395675,
+    "min": 0.5,
+    "max": 1.0,
+    "n_unique": 6
+   },
+   "n_unique_messages": 179,
+   "n_unique_openings": 12,
+   "top_openings": [
+    [
+     "i ve spent years",
+     128
+    ],
+    [
+     "i ve restored enough",
+     32
+    ],
+    [
+     "i ve restored a",
+     6
+    ],
+    [
+     "i ve read the",
+     3
+    ],
+    [
+     "i ve watched two",
+     2
+    ]
+   ]
+  },
+  "2": {
+   "pair_cos": {
+    "mean": 0.5664959057471463,
+    "median": 0.5846963103984282,
+    "p10": 0.36371440483986656,
+    "p90": 0.7318379221830457,
+    "min": 0.11728793385060643,
+    "frac_gt_0.90": 0.003414028553693358,
+    "frac_gt_0.95": 0.0008069522036002483
+   },
+   "effective_rank": 22.37047928496281,
+   "pca": {
+    "pc1": 0.13474297888306447,
+    "pc5": 0.38558863732965953,
+    "pc10": 0.545105644499811
+   },
+   "content_sim": {
+    "mean": 0.2340694032842504,
+    "std": 0.0580122557815844,
+    "min": 0.11221372089588899,
+    "max": 0.4195577639570948,
+    "range": 0.30734404306120583
+   },
+   "content_term_span": 0.03841800538265075,
+   "score": {
+    "mean": 0.8816666666666669,
+    "std": 0.04543397198194172,
+    "min": 0.7,
+    "max": 1.0,
+    "n_unique": 4
+   },
+   "n_unique_messages": 178,
+   "n_unique_openings": 8,
+   "top_openings": [
+    [
+     "i ve spent years",
+     163
+    ],
+    [
+     "i ve built things",
+     6
+    ],
+    [
+     "i ve volunteered at",
+     4
+    ],
+    [
+     "you ve seen what",
+     3
+    ],
+    [
+     "you keep saying you",
+     1
+    ]
+   ]
+  }
+ },
+ "eta2_by_strategy_dim": {
+  "appeal": 0.04712620798523547,
+  "tone": 0.03650495492761887,
+  "emphasis": 0.055144462797868304,
+  "intensity": 0.01965518126882267
+ },
+ "within_across_cos": {
+  "appeal": {
+   "within": 0.338,
+   "across": 0.301,
+   "gap": 0.037,
+   "nn_purity": 0.55
+  },
+  "tone": {
+   "within": 0.327,
+   "across": 0.309,
+   "gap": 0.018,
+   "nn_purity": 0.456
+  },
+  "emphasis": {
+   "within": 0.336,
+   "across": 0.308,
+   "gap": 0.029,
+   "nn_purity": 0.322
+  },
+  "intensity": {
+   "within": 0.319,
+   "across": 0.31,
+   "gap": 0.009,
+   "nn_purity": 0.394
+  }
+ },
+ "reward_link": {
+  "cv_r2_reward_from_msgPCs": 0.288,
+  "spearman_content_vs_reward": 0.161,
+  "spearman_judge_vs_reward": 0.731
+ },
+ "mean_pair_cos_across_strategy": 0.3131595667852049,
+ "mean_pair_cos_across_persona": 0.3311315345111489,
+ "reference_unrelated_cos": 0.0880508939622728
+}

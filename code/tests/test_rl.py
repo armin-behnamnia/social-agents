@@ -92,11 +92,11 @@ class TestElitePersuaderEnv:
 
 
 class TestTrainer:
-    def test_policy_save_load_roundtrip(self):
+    def test_policy_save_load_roundtrip(self, tmp_path):
         from code.trainer import RLPolicy
 
         p = RLPolicy(seed=1)
-        path = "/tmp/opencode/test_policy.npz"
+        path = tmp_path / "test_policy.npz"
         p.save(path)
         q = RLPolicy(seed=2)
         q.load(path)

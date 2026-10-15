@@ -86,6 +86,7 @@ class ElitePersuaderEnv:
         obs_mode: str = "matrix",
         persuader_persuasiveness: bool = True,
         n_persuaders: int = 1,
+        judge_fn=None,
     ):
         self.scenario = scenario or LLMScenario()
         self.n_periods = n_periods
@@ -120,6 +121,10 @@ class ElitePersuaderEnv:
         # paper's original dynamics). Gives the RL policy a genuine
         # strategy-dependent learning signal.
         self.persuader_persuasiveness = persuader_persuasiveness
+        # Optional reward model (e.g. a Bradley-Terry pairwise judge).
+        # Called as judge_fn(message, profile); a None return falls back
+        # to the absolute LLM judge.
+        self._judge_fn = judge_fn
         self._persuasiveness_cache: dict[int, float] = {}
 
         self._learned_targets = target_selection == "learned"
@@ -453,13 +458,16 @@ class ElitePersuaderEnv:
         score = self._persuasiveness_cache.get(key)
         if score is None:
             try:
-                score = LLM_module.judge_persuasiveness(
-                    message, target.profile
-                )
+                if self._judge_fn is not None:
+                    score = self._judge_fn(message, target.profile)
+                if score is None:
+                    score = LLM_module.judge_persuasiveness(
+                        message, target.profile
+                    )
             except Exception:  # noqa: BLE001 - judge is optional
                 score = 1.0
             self._persuasiveness_cache[key] = score
-        return score if score else 1.0
+        return 1.0 if score is None else float(score)
 
     def step(self, action):
         """Advance one diffusion period.

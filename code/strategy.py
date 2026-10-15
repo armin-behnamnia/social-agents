@@ -108,3 +108,33 @@ def np_ravel(idx: tuple[int, ...], dims: tuple[int, ...]) -> int:
     for i, d in zip(idx, dims):
         out = out * d + i
     return out
+
+
+# ----------------------------------------------------------------------
+# strategy-space selection
+# ----------------------------------------------------------------------
+# ``PERSUASION_STRATEGY_SPACE=v2`` swaps the public names of this module
+# for the relevance-conditioned space in ``strategy_v2``. Every consumer
+# (env, trainer, eval, warmup) imports from ``.strategy``, so the swap is
+# transparent; the v1 grid stays the default.
+
+import os as _os
+
+if _os.environ.get("PERSUASION_STRATEGY_SPACE", "v1").lower() in (
+    "v2",
+    "relevance",
+):
+    from .strategy_v2 import *  # noqa: F401,F403
+    from .strategy_v2 import (  # noqa: F401
+        N_STRATEGIES,
+        STRATEGY_DIMS,
+        StrategySpec,
+        index_to_strategy,
+        strategy_to_index,
+        all_strategies,
+        describe,
+    )
+
+    ACTIVE_SPACE = "v2"
+else:
+    ACTIVE_SPACE = "v1"

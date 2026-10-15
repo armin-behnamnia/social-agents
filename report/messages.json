@@ -1,0 +1,56 @@
+[
+ {
+  "idx": 90,
+  "appeal": "pathos",
+  "tone": "empathetic",
+  "emphasis": "evidence",
+  "intensity": "measured",
+  "score": 0.8,
+  "message": "I\u2019ve spent enough late nights with spreadsheets to know numbers don\u2019t tell the whole story. This policy sounds efficient on paper, but it ignores the human cost. Let\u2019s talk about what we\u2019d actually lose before we rush ahead."
+ },
+ {
+  "idx": 141,
+  "appeal": "ethos",
+  "tone": "urgent",
+  "emphasis": "social_proof",
+  "intensity": "measured",
+  "score": 0.8,
+  "message": "I\u2019ve seen how rent spikes hit my pottery studio\u2019s bottom line, and as an accountant, I know the numbers don\u2019t lie. Raising taxes on small landlords won\u2019t fix housing\u2014it\u2019ll just push costs onto us. Let\u2019s fund real solutions, not feel-good policies."
+ },
+ {
+  "idx": 153,
+  "appeal": "ethos",
+  "tone": "empathetic",
+  "emphasis": "personal_story",
+  "intensity": "measured",
+  "score": 0.9,
+  "message": "I\u2019ve spent years balancing spreadsheets, but pottery taught me that some things can\u2019t be forced into neat columns. This policy feels like that\u2014too rigid for real life. I\u2019ve seen how it overlooks the messy, human details. Let\u2019s slow down and listen first."
+ },
+ {
+  "idx": 13,
+  "appeal": "logos",
+  "tone": "neutral",
+  "emphasis": "authority",
+  "intensity": "assertive",
+  "score": 0.8,
+  "message": "I\u2019ve seen how small, local arts grants keep studios like mine open\u2014and the data backs it: every $1 invested returns $4 in community revenue. Cutting this funding isn\u2019t just a loss for makers; it\u2019s a measurable hit to our economy."
+ },
+ {
+  "idx": 168,
+  "appeal": "ethos",
+  "tone": "confrontational",
+  "emphasis": "personal_story",
+  "intensity": "measured",
+  "score": 0.9,
+  "message": "I\u2019ve spent enough late nights in my studio to know that forcing every creative space to follow one rigid rule doesn\u2019t work. I\u2019ve seen the numbers, and they don\u2019t match the hype. Let\u2019s talk real experience, not headlines."
+ },
+ {
+  "idx": 58,
+  "appeal": "logos",
+  "tone": "confrontational",
+  "emphasis": "authority",
+  "intensity": "assertive",
+  "score": 0.5,
+  "message": "I\u2019ve run the numbers on rent control, and they don\u2019t add up. Every study shows it shrinks housing supply while prices climb for everyone else. I\u2019ve seen it in my own neighborhood. Stop pretending good intentions beat basic math."
+ }
+]
