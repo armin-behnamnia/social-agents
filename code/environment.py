@@ -221,7 +221,8 @@ class LLMEnvironment(Environment):
                     continue
 
                 target_agent.exposure_count += 1
-                self.select_post(source_agent, target_agent)
+                if source_agent.stance < 0:
+                    self.select_post(source_agent, target_agent)
                 target_agent.infection_stance_aware(agents,period,self.diffusion_events,self.message_events,source_agent)
                 self.update_observer(target_agent, period)
                 # Newly infected targets can spread information too
@@ -259,8 +260,8 @@ class LLMEnvironment(Environment):
                 target.exposure_count += 1
 
                 if target.exposure_count < k: continue
-
-                self.select_post(source, target)
+                if source.stance<0:
+                    self.select_post(source, target)
                 emerged = target.infection(agents, period, self.diffusion_events, self.message_events, source)
 
                 if emerged:
@@ -328,9 +329,15 @@ class LLMEnvironment(Environment):
         #print("alteration_degree after seueeze: ", self.alteration_degree )
         # print(self.alteration_degree)
 
-    def save_diffusion_events(self):
+    def save_diffusion_events(self, method):
+        output_dir = f"data/output_{method}"
+        os.makedirs(output_dir, exist_ok=True)
 
-        filename = (f"data/output/"f"diffusion_events_"f"{self.scenario.id}.csv")
+        filename = os.path.join(
+            output_dir,
+            f"diffusion_events_{self.scenario.id}.csv"
+        )
+        #filename = (f"data/output/"f"diffusion_events_"f"{self.scenario.id}.csv")
 
         print("\n===== SAVE DIFFUSION EVENTS =====")
         print("Number of events:", len(self.diffusion_events))
@@ -350,7 +357,10 @@ class LLMEnvironment(Environment):
         print("Diffusion events saved successfully.")
         print("=================================\n")
 
-        filename = (f"data/output/"f"Message_events_"f"{self.scenario.id}.csv")
+        filename = os.path.join(
+            output_dir,
+            f"Message_events_{self.scenario.id}.csv"
+        )
 
         print("\n===== SAVE Message EVENTS =====")
         print("Number of events:", len(self.message_events))
