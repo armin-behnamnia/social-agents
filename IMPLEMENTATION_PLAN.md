@@ -106,6 +106,21 @@ startup, and make any fallback loud.
 - A one-page justification (fit quality / sweep) lands in `RESULTS.md`.
 - Defaults unchanged until the calibration passes; v1/v2 runs remain comparable.
 
+**Status: DONE (2026-10-16) — with a negative result, honestly reported.**
+- **α:** not separately identifiable (effective rank **2.28/4**; profile &
+  degree near-constant). Keep the equal-weight prior, now documented as an
+  *unidentifiable prior*; the linear recovery is exact (0.25, resid 8e-5) and
+  serves as an instrumentation check. `code/fit_alphas.py` →
+  `output/calibration/alphas.json`.
+- **β:** the dynamics identify only **ρ = β·κ** (κ = α scale). ρ ≈ 2
+  (β≈0.9, κ≈2–3) jointly matches early ΔS (−0.16 vs −0.168) and the plateau
+  (−0.46/−0.55), but **late ΔS is structurally 0** vs the paper's −0.107 (our
+  transition reaches a static fixed point; no stable intermediate consensus).
+  β is therefore **not the binding knob** — the residual is the transition
+  *form*, which Track B addresses. Keep β = 0.4. `code/calibrate_beta.py` →
+  `output/calibration/beta*.json`.
+- Config annotated; `RESULTS.md` Campaign 4; 4 new tests (83/83 pass).
+
 ---
 
 ## Track B — Inject goal direction into the stance delta
@@ -243,9 +258,13 @@ end-to-end smoke run reported `id=15, text=0, none=0` (zero fallbacks), and
    hits 100% by identity (`id=15, text=0, none=0`).
 
 **Next — Track A (calibration, no RL-path changes)**
-8. [ ] `code/fit_alphas.py`: logistic fit of the four α's from logged events.
-9. [ ] `code/calibrate_beta.py`: β sweep against the paper's dynamics targets.
-10. [ ] Write chosen α/β + evidence into config and `RESULTS.md`.
+8. [x] `code/fit_alphas.py`: fit/audit the four α's from logged events —
+   result: **not identifiable** (effective rank 2.28/4); keep equal weights.
+9. [x] `code/calibrate_beta.py`: joint (β, κ) sweep vs the paper's dynamics —
+   result: early ΔS + plateau match at ρ≈2, **late ΔS structurally 0**; β is
+   not the binding knob.
+10. [x] Chosen α/β + evidence written into `code/config.py` comments and
+    `RESULTS.md` (Campaign 4); defaults unchanged for comparability.
 
 **Then — Track B (goal direction, behind a flag)**
 11. [ ] Define `G_goal`/`G_anti` proposition in config (replace placeholder topic).

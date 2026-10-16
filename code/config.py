@@ -85,6 +85,14 @@ class ScenarioConfig:
     inference_state_max: float = 1.0
 
     # Stance transition: s' = s + influence * susceptibility * (s_src - s)
+    # β = 0.4 is NOT data-calibrated: `code/calibrate_beta.py` shows the
+    # dynamics constrain only the product ρ = β·κ (κ = α scale), and no
+    # setting reproduces the paper's *sustained* late ΔS (≈ −0.107; our
+    # model reaches a static fixed point, ΔS→0). Early ΔS (≈ −0.168) and
+    # the plateau (S ≈ −0.5) are jointly matched at ρ ≈ 2 (β≈0.9, κ≈2),
+    # but the residual is structural (the text-independent pull-to-source
+    # transition), addressed by Track B — not by re-tuning β. Kept at 0.4
+    # so v1/v2 runs stay comparable. Evidence: output/calibration/beta*.json
     stance_influence_rate: float = 0.4
 
     # |stance| threshold for qualitative labels
@@ -97,7 +105,13 @@ class ScenarioConfig:
     # its stance drops to <= 0, so adoption would never trigger.
     adoption_threshold: float = 0.0
 
-    # Influence-probability weights
+    # Influence-probability weights. Equal-by-assumption; `code/fit_alphas.py`
+    # shows the four components are near-collinear (effective rank 2.28/4),
+    # so the α's are NOT separately identifiable from behavior — a fit
+    # recovers whatever generated the data (instrumentation check: linear
+    # recovery = [0.252, 0.244, 0.250, 0.252], mean|resid| 8e-5). Kept equal
+    # as an unidentifiable prior; the influence *scale* is swept jointly with
+    # β in `code/calibrate_beta.py`. Evidence: output/calibration/alphas.json
     alpha_profile: float = 0.25
     alpha_content: float = 0.25
     alpha_stance: float = 0.25

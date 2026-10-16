@@ -358,3 +358,93 @@ Tracks C and B).
 
 The report mirror of this section lives in `report/index.html` → *campaign 3
 verdict* (under the Bradley–Terry appendix).
+
+---
+
+# Campaign 4 — constant calibration (Track A)
+
+Date: 2026-10-16. Track A makes the dynamics constants defensible rather
+than inherited: the four α's (`0.25` each) and the stance step β (`0.4`)
+were placeholders. The paper defines `p_ij ← InfluenceProbability(...)` and
+`Δs_j ← StateTransition(j, m)` but **never expands either** (verified by
+extracting `Agentic_Information_diffusion.pdf`), so both must be
+*justified*, not merely *chosen*.
+
+Two scripts, each reproducible (data hash + script version recorded):
+
+## A1. `code/fit_alphas.py` — the α's are not identifiable
+
+Runs frozen crowd simulations (real `KubeAI/jina-v5-text` embeddings, 200
+episodes × 12 periods → **16,995 exposures**, accept rate 0.744) and logs
+the four components per exposure (the instrumentation now carries
+`profile_sim / content_sim / stance_sim / degree_sim` on every
+`diffusion_event`).
+
+| view | result |
+|---|---|
+| linear recovery (regress logged `p` on components, α≥0) | **[0.252, 0.244, 0.250, 0.252]**, mean\|resid\| **8.2e-5** |
+| logistic fit `P(accept)=σ(Σα·sim+b)`, α≥0 | [0.38, 0.15, 1.16, 0.00], b −0.12, logloss 0.561 |
+| design-matrix effective rank | **2.28 / 4**, cond 15.1 |
+| per-feature std | profile 0.044, content 0.025, stance 0.221, degree **0.015** |
+
+The linear recovery is exact — it just confirms the instrumentation (the
+accept gate *is* the weighted sum). The decisive number is the **effective
+rank 2.28/4**: profile- and degree-similarity are near-constant within an
+episode, so the four α's are **not separately identifiable from behavior**.
+The logistic coefficients differ wildly from 0.25 while the design is
+collinear — a fitted α would be noise.
+
+**Decision: keep the equal-weight prior (0.25).** It is now documented as an
+*unidentifiable prior*, not an arbitrary guess; and the influence *scale*
+(not the shape) is what the dynamics can constrain — calibrated jointly with
+β below.
+
+## A2. `code/calibrate_beta.py` — β alone cannot match the paper
+
+Sweeps the effective strength **ρ = β·κ** (κ scales the four α's jointly;
+β and κ enter the dynamics only through `Δs = p·β·(s_src−s)` with
+`p = κ·Σ0.25·sim`, so the dynamics pin down ρ, not β alone). Targets,
+confirmed verbatim from the paper:
+
+- early mean ΔS (t ∈ 1..3) ≈ **−0.168**
+- late mean ΔS (t ≥ 16) ≈ **−0.107**
+- plateau S ≈ **−0.55** (from +0.65 over t ∈ [0,19])
+
+Fine sweep (20 episodes × 24 periods, real embeddings):
+
+| β | κ | ρ | early ΔS | late ΔS | plateau S | score |
+|---|---|---|---|---|---|---|
+| 0.90 | 2 | 1.80 | −0.161 | **0.000** | −0.457 | 1.030 |
+| **0.90** | **3** | **2.70** | **−0.163** | **0.000** | **−0.466** | **1.024** |
+| 0.95 | 2 | 1.90 | −0.192 | 0.000 | −0.709 | 1.104 |
+| 1.00 | 2 | 2.00 | −0.227 | 0.000 | −1.000 | 1.791 |
+
+**Findings.**
+
+1. **Early ΔS and the plateau are jointly matchable** at ρ ≈ 2
+   (β≈0.9, κ≈2–3): early −0.16 vs −0.168, plateau −0.46 to −0.55.
+2. **Late ΔS is structurally wrong**: every setting gives late ΔS ≈ **0**,
+   against the paper's −0.107. Our transition reaches a *static* fixed
+   point (once the network adopts, `s_src − s → 0` and updates stop), where
+   the paper maintains *sustained, decaying* late updates ("cognitive
+   saturation"). Pushing ρ higher doesn't fix the shape — it triggers a
+   sharp all-or-nothing cascade to S = −1 (ρ ≥ 2.0), with no stable
+   intermediate consensus.
+3. Therefore **β is not the binding knob**: the residual is the
+   *functional form* of the transition — exactly the text-independent
+   `pull-to-source` that **Track B** replaces with a goal-direction term.
+
+**Decision: keep β = 0.4** (v1/v2 comparability), now annotated in
+`code/config.py` with the ρ evidence and the structural caveat. The
+dynamics mismatch is handed to Track B; re-tuning β would be fitting a
+shape problem with a scale knob.
+
+## A3. Status
+
+- α and β are now *justified* (as an unidentifiable prior and a
+  non-binding default) with reproducible evidence
+  (`output/calibration/alphas.json`, `beta.json`, `beta_fine.json`,
+  `beta_sweep.png`, `beta_fine.png`).
+- Defaults unchanged, so campaign-1/2/3 runs stay comparable.
+- 4 new tests (`influence_terms`, event components, `nnls`,
+  `fit_logistic_nn`); **83/83 pass**.

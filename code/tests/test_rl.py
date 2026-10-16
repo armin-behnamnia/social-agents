@@ -231,3 +231,73 @@ class TestBTIdentityLookup:
         env.reset(seed=99)
         assert [a.profile_id for a in env._sim.agents] == list(range(10))
         assert [a.profile for a in env._sim.agents] == profiles
+
+
+class TestInfluenceInstrumentation:
+    """Track A: the four α terms are exposed and logged per exposure."""
+
+    def _crowd_sim(self, periods=5, seed=7):
+        from code.profiles import generate_synthetic_profiles
+        from code.simulation import Simulation
+
+        sc = LLMScenario(
+            agent_num=30, seed=seed,
+            use_post_evidence=False, use_profile_evidence=False,
+        )
+        sim = Simulation(
+            scenario=sc, profiles=generate_synthetic_profiles(30, seed=1),
+            seed_ids=[0],
+        )
+        sim.run(periods)
+        return sim
+
+    def test_influence_terms_range_and_sum(self):
+        sim = self._crowd_sim()
+        a = sim.agents[1]
+        src = sim.agents[0]
+        terms = a.influence_terms(src)
+        assert set(terms) == {
+            "profile_sim", "content_sim", "stance_sim", "degree_sim"
+        }
+        for v in terms.values():
+            assert 0.0 <= v <= 1.0
+        # calculate_influence_prob must equal the weighted sum of the terms
+        # (crowd: persuasiveness 1.0) — behaviour preservation of the refactor.
+        expected = sum(0.25 * v for v in terms.values())
+        assert a.calculate_influence_prob(src) == pytest.approx(
+            min(max(expected, 0.0), 1.0)
+        )
+
+    def test_events_carry_components(self):
+        sim = self._crowd_sim()
+        assert sim.diffusion_events, "no exposures logged"
+        for e in sim.diffusion_events:
+            assert "profile_sim" in e and "degree_sim" in e
+            assert e.get("persuasiveness") == pytest.approx(1.0)
+            # gate is exactly the (clipped) weighted sum
+            p = 0.25 * (e["profile_sim"] + e["content_sim"]
+                        + e["stance_sim"] + e["degree_sim"])
+            assert e["influence_probability"] == pytest.approx(
+                min(max(p, 0.0), 1.0), abs=1e-9
+            )
+
+    def test_nnls_recovers_known_weights(self):
+        from code.fit_alphas import nnls
+
+        rng = np.random.default_rng(0)
+        X = rng.random((500, 4))
+        w = np.array([0.25, 0.25, 0.25, 0.25])
+        b = X @ w
+        assert np.allclose(nnls(X, b), w, atol=1e-4)
+
+    def test_logistic_fit_nonneg(self):
+        from code.fit_alphas import fit_logistic_nn
+
+        rng = np.random.default_rng(1)
+        X = rng.random((800, 4))
+        true = np.array([1.5, 0.0, 0.5, 0.0])
+        p = 1.0 / (1.0 + np.exp(-(X @ true - 0.5)))
+        y = (rng.random(len(p)) < p).astype(float)
+        a, b0 = fit_logistic_nn(X, y)
+        assert np.all(a >= 0)          # constrained
+        assert np.isfinite(b0)

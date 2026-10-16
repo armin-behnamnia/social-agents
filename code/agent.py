@@ -117,6 +117,11 @@ class LLMSocialAgent(NetworkAgent):
         self.parent_message_id = None
         self.original_message_id = None
 
+        # Last computed influence components (instrumentation only; set in
+        # calculate_influence_prob, read by save_diffusion_event).
+        self._last_influence_terms: dict = {}
+        self._last_persuasiveness: float = 1.0
+
     # ==============================================================
     # Message ID
     # ==============================================================
@@ -491,7 +496,13 @@ class LLMSocialAgent(NetworkAgent):
     # Influence probability
     # ==============================================================
 
-    def calculate_influence_prob(self, source_agent) -> float:
+    def influence_terms(self, source_agent) -> dict:
+        """The four raw similarity components feeding the influence prob.
+
+        All in [0, 1]. Exposed separately from the weighted sum so the
+        α's can be fit/audited from logged events (``code/fit_alphas.py``)
+        without re-deriving embeddings after the fact.
+        """
         # 1. Profile similarity
         profile_similarity = 0.0
         if self.embedding is not None and source_agent.embedding is not None:
@@ -521,12 +532,22 @@ class LLMSocialAgent(NetworkAgent):
         )
         degree_similarity = float(np.clip(degree_similarity, 0.0, 1.0))
 
+        return {
+            "profile_sim": float(profile_similarity),
+            "content_sim": float(content_profile_similarity),
+            "stance_sim": float(stance_similarity),
+            "degree_sim": float(degree_similarity),
+        }
+
+    def calculate_influence_prob(self, source_agent) -> float:
+        terms = self.influence_terms(source_agent)
+
         # 5. Weighted influence
         influence_prob = (
-            self.scenario.alpha_profile * profile_similarity
-            + self.scenario.alpha_content * content_profile_similarity
-            + self.scenario.alpha_stance * stance_similarity
-            + self.scenario.alpha_degree * degree_similarity
+            self.scenario.alpha_profile * terms["profile_sim"]
+            + self.scenario.alpha_content * terms["content_sim"]
+            + self.scenario.alpha_stance * terms["stance_sim"]
+            + self.scenario.alpha_degree * terms["degree_sim"]
         )
 
         # 6. Optional message persuasiveness multiplier (RL persuader):
@@ -538,6 +559,11 @@ class LLMSocialAgent(NetworkAgent):
         )
         if persuasiveness != 1.0:
             influence_prob *= float(persuasiveness)
+
+        # Stash for event logging (fit_alphas / audit). Never used by the
+        # dynamics themselves.
+        self._last_influence_terms = terms
+        self._last_persuasiveness = float(persuasiveness)
 
         return float(np.clip(influence_prob, 0.0, 1.0))
 
@@ -555,24 +581,31 @@ class LLMSocialAgent(NetworkAgent):
         influence_prob,
         behavior,
     ):
-        diffusion_events.append(
-            {
-                "period": period,
-                "source_agent": source_agent.id,
-                "target_agent": self.id,
-                "target_stance_before": target_stance_before,
-                "target_stance_after": target_stance_after,
-                "target_delta_stance": target_stance_after - target_stance_before,
-                "source_degree_centrality": source_agent.degree_centrality,
-                "source_betweenness_centrality": source_agent.betweenness_centrality,
-                "target_degree_centrality": self.degree_centrality,
-                "target_betweenness_centrality": self.betweenness_centrality,
-                "influence_probability": influence_prob,
-                "interaction": "exposure",
-                "behavior": behavior,
-                "adopted": int(self.preference_state == 1),
-            }
-        )
+        event = {
+            "period": period,
+            "source_agent": source_agent.id,
+            "target_agent": self.id,
+            "target_stance_before": target_stance_before,
+            "target_stance_after": target_stance_after,
+            "target_delta_stance": target_stance_after - target_stance_before,
+            "source_degree_centrality": source_agent.degree_centrality,
+            "source_betweenness_centrality": source_agent.betweenness_centrality,
+            "target_degree_centrality": self.degree_centrality,
+            "target_betweenness_centrality": self.betweenness_centrality,
+            "influence_probability": influence_prob,
+            "interaction": "exposure",
+            "behavior": behavior,
+            "adopted": int(self.preference_state == 1),
+        }
+        # The four raw influence components + persuasiveness, when the
+        # influence path ran this interaction (fit_alphas reads these).
+        terms = getattr(self, "_last_influence_terms", None)
+        if terms:
+            event.update(terms)
+            event["persuasiveness"] = getattr(
+                self, "_last_persuasiveness", 1.0
+            )
+        diffusion_events.append(event)
 
     def save_message_event(
         self,
