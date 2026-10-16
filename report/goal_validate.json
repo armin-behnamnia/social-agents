@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-10-16T09:45:38.358817+00:00",
+  "align_backend": "semdiff",
+  "directional_sanity": true,
+  "a_anti": 0.66469633380001,
+  "a_neutral": 0.513153224599929,
+  "a_pro": 0.33974516813043765,
+  "n_decisions": 626,
+  "corr_align_neg_delta": 0.17691007248528487,
+  "mean_neg_delta_on_goal": 0.03733606830357693,
+  "mean_neg_delta_off_goal": 0.02533593325277138,
+  "pass": true
+}

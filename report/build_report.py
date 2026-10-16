@@ -34,6 +34,67 @@ _BT_TABLE = HERE.parent / "output/ppo_v2_bt/bt_judge.json"
 BT = (json.loads(_BT_TABLE.read_text()) if _BT_TABLE.exists() else None)
 _C3_RESULTS = HERE.parent / "output/ppo_v2_bt/live_run2/results.json"
 _C3_LOG = HERE.parent / "output/ppo_v2_bt/train2.log"
+_CAL_DIR = HERE.parent / "output/calibration"
+
+
+def _load_cal(name):
+    # prefer the committed copy in report/ (reproducible), else the run dir
+    p = HERE / name
+    if not p.exists():
+        p = _CAL_DIR / name
+    return json.loads(p.read_text()) if p.exists() else None
+
+
+ALPHAS = _load_cal("alphas.json")
+BETA = _load_cal("beta_fine.json")
+GOAL = _load_cal("goal_validate.json")
+
+
+def calibration():
+    """Track A: the α fit/audit and the joint (β, κ) sweep vs the paper."""
+    if not (ALPHAS and BETA):
+        return None
+    ident = ALPHAS["identifiability"]
+    rows = sorted(BETA["sweep"], key=lambda r: r["rho"])
+    best = min(BETA["sweep"], key=lambda r: r["score"])
+    return {
+        "n_rows": ALPHAS["n_rows"],
+        "accept_rate": round(ALPHAS["accept_rate"], 3),
+        "lin": [round(v, 4) for v in ALPHAS["linear_recovery_alpha"]],
+        "lin_resid": ALPHAS["linear_recovery_mean_abs_resid"],
+        "log": [round(v, 4) for v in ALPHAS["logistic_alpha"]],
+        "log_b": round(ALPHAS["logistic_intercept"], 3),
+        "eff_rank": round(ident["effective_rank"], 2),
+        "cond": round(ident["condition_number"], 1),
+        "std": [round(v, 3) for v in ident["per_feature_std"]],
+        "identifiable": ALPHAS["identifiable"],
+        "targets": BETA["spec"]["targets"],
+        "chosen_beta": BETA["chosen_beta"],
+        "chosen_kappa": BETA["chosen_kappa"],
+        "chosen_rho": BETA["chosen_rho"],
+        "rho": [round(r["rho"], 3) for r in rows],
+        "early": [round(r["early_dS"], 4) for r in rows],
+        "late": [round(r["late_dS"], 4) for r in rows],
+        "plateau": [round(r["plateau_S"], 4) for r in rows],
+        "traj": [round(v, 4) for v in best["mean_trajectory"]],
+    }
+
+
+def goal_validation():
+    """Track B: directional sanity + a(m) vs realized −Δs."""
+    if not GOAL:
+        return None
+    return {
+        "backend": GOAL["align_backend"],
+        "a_anti": round(GOAL["a_anti"], 3),
+        "a_neutral": round(GOAL["a_neutral"], 3),
+        "a_pro": round(GOAL["a_pro"], 3),
+        "corr": round(GOAL["corr_align_neg_delta"], 3),
+        "on": round(GOAL["mean_neg_delta_on_goal"], 4),
+        "off": round(GOAL["mean_neg_delta_off_goal"], 4),
+        "n": GOAL["n_decisions"],
+        "pass": GOAL["pass"],
+    }
 
 
 def campaign3():
@@ -410,6 +471,8 @@ pay = {
     "bt": bt_readout(),
     "bt_points": bt_land_points(),
     "c3": campaign3(),
+    "cal": calibration(),
+    "goal": goal_validation(),
 }
 
 HTML = r"""<!DOCTYPE html>
@@ -899,6 +962,38 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
   </div>
 </div>
 
+<h3>campaign 4: the dynamics constants, measured</h3>
+<p style="max-width:820px;color:var(--ink-light)">The influence weights α (four × <span class="mono">0.25</span>) and the stance step β (<span class="mono">0.4</span>) were inherited placeholders — the paper writes <span class="mono">p_ij ← InfluenceProbability(…)</span> and <span class="mono">Δs_j ← StateTransition(…)</span> without expanding either. Two reproducible scripts replace the assumption with evidence.</p>
+<div class="table-wrapper">
+<table>
+  <thead><tr><th class="left">α probe (Track A1)</th><th>value</th><th class="left">reading</th></tr></thead>
+  <tbody id="calAlphaTable"></tbody>
+</table>
+</div>
+<div class="chart-container reveal">
+  <canvas id="calBetaChart" height="235"></canvas>
+  <div class="caption">Joint (β, κ) sweep against the paper's dynamics. β and the α-scale κ enter only through ρ = β·κ. Early ΔS and the plateau are jointly matchable near ρ ≈ 2, but late ΔS is structurally 0 — the transition reaches a static fixed point, not the paper's sustained ≈ −0.107.</div>
+</div>
+<div class="aside-container">
+  <div class="aside">
+    <div class="sidebar-title">why the α fit is a negative result</div>
+    <p>The design matrix has effective rank <span class="mono" id="calRank">—</span>/4 (profile- and degree-similarity are near-constant), so the four α's are <em>not separately identifiable</em> from behavior. A logistic fit returns values far from 0.25 while the design is collinear — noise. The equal weights are kept, now documented as an <em>unidentifiable prior</em>.</p>
+  </div>
+  <div class="aside">
+    <div class="sidebar-title">β is not the binding knob</div>
+    <p>No setting reproduces the paper's smooth late phase: the model either stays shallow or collapses to S = −1, with no stable intermediate consensus. The residual is the text-independent pull-to-source — handed to campaign 5, not fixed by re-tuning β.</p>
+  </div>
+</div>
+
+<h3>campaign 5: goal-direction injection</h3>
+<p style="max-width:820px;color:var(--ink-light)">The reward and the stance delta were both text-direction-blind: an off-goal-but-persuasive post was scored like an on-goal one, and the transition pulled the target toward the source regardless of what the post argued. Campaign 5 measures the message's alignment with a named goal proposition, <span class="mono">a(m) ∈ [0,1]</span>, and injects it into the step (<span class="mono">s_eff = s_src·(2a−1)</span>) behind <span class="mono">--goal-delta</span>.</p>
+<div class="table-wrapper">
+<table>
+  <thead><tr><th class="left">goal probe (Track B4)</th><th>value</th><th class="left">reading</th></tr></thead>
+  <tbody id="goalTable"></tbody>
+</table>
+</div>
+
 <div class="flyout">
   <div class="flyout-title">validation gate (run before committing)</div>
   <p>Any candidate strategy space must clear all three, measured exactly as here: realisability <span class="mono">NN ≥ 0.60</span>; readability <span class="mono">judge SD ≥ 0.15</span> and <span class="mono">modal &lt; 40%</span>; and a target×action oracle gain that exceeds the per-episode reward noise (<span class="mono">SE ≈ 0.53</span>). A space that fails the third is unlearnable no matter how diverse its posts.</p>
@@ -907,7 +1002,8 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 <footer>
   generated from output/ppo5p_rn/live_run1/{training_log,results,results_final}.json,<br>
   output/ppo/*/results.json, replay trajectories, and the cached render+judge matrix (.llm_cache).<br>
-  report_data.json • judge_probe.json • 2026-10-13
+  campaigns 4–5 from output/calibration/{alphas,beta_fine,goal_validate}.json.<br>
+  report_data.json • judge_probe.json • 2026-10-16
 </footer>
 
 </div>
@@ -1297,6 +1393,48 @@ if(D.c3){
             y:{title:{display:true,text:'paired reward (50 seeds)'},grid:{color:'#eee'}}},
             plugins:{legend:{position:'top',align:'end'}}}
   });
+}
+
+// --- campaign 4: constant calibration ---
+if(D.cal){
+  const c=D.cal, st=document.getElementById('calAlphaTable');
+  const rr=document.getElementById('calRank');
+  if(rr) rr.textContent=c.eff_rank.toFixed(2);
+  const rows=[
+    {n:'linear recovery α (no intercept)', v:'['+c.lin.join(', ')+']', r:'exact — instrumentation check, mean|resid| '+c.lin_resid.toExponential(1)},
+    {n:'logistic fit α, α≥0', v:'['+c.log.join(', ')+']', r:'collinear design ⇒ unstable; b='+c.log_b},
+    {n:'effective rank / condition', v:c.eff_rank.toFixed(2)+' / 4, cond '+c.cond.toFixed(1), r:'α NOT separately identifiable'},
+    {n:'per-feature std', v:'['+c.std.join(', ')+']', r:'profile & degree near-constant'},
+    {n:'kept in config', v:'α = 0.25 equal, β = 0.4', r:'unidentifiable prior / non-binding default'},
+  ];
+  rows.forEach(r=>st.insertAdjacentHTML('beforeend',
+    `<tr><td class="left">${r.n}</td><td class="mono">${r.v}</td><td class="left">${r.r}</td></tr>`));
+  const pts=(ys)=>c.rho.map((x,i)=>({x:x,y:ys[i]}));
+  new Chart(document.getElementById('calBetaChart'),{
+    type:'scatter',
+    data:{datasets:[
+      {label:'early ΔS',data:pts(c.early),backgroundColor:'#2a7a5a',pointRadius:3.2},
+      {label:'late ΔS',data:pts(c.late),backgroundColor:'#c45a28',pointRadius:3.2},
+      {label:'plateau S',data:pts(c.plateau),backgroundColor:'#5a5aaa',pointRadius:3.2},
+    ]},
+    options:{responsive:true,
+      scales:{x:{type:'linear',title:{display:true,text:'ρ = β·κ (effective influence strength)'},grid:{color:'#eee'}},
+              y:{title:{display:true,text:'stance (ΔS or S)'},grid:{color:'#eee'}}},
+      plugins:{legend:{position:'top',align:'end'}}}
+  });
+}
+
+// --- campaign 5: goal direction ---
+if(D.goal){
+  const g=D.goal, st=document.getElementById('goalTable');
+  const rows=[
+    {n:'directional sanity ('+g.backend+')', v:'anti '+g.a_anti.toFixed(3)+' > neutral '+g.a_neutral.toFixed(3)+' > pro '+g.a_pro.toFixed(3), r:g.pass?'✓ anti-policy ranks highest':'✗ failed'},
+    {n:'corr( a(m), realized −Δs )', v:(g.corr>0?'+':'')+g.corr.toFixed(3), r:'n = '+g.n+' scored decisions'},
+    {n:'mean −Δs, on-goal (a≥0.5)', v:(g.on>=0?'+':'')+g.on.toFixed(4), r:'≈ '+(g.on/g.off).toFixed(1)+'× the off-goal reward'},
+    {n:'mean −Δs, off-goal (a<0.5)', v:(g.off>=0?'+':'')+g.off.toFixed(4), r:'old off-goal advantage attenuated'},
+  ];
+  rows.forEach(r=>st.insertAdjacentHTML('beforeend',
+    `<tr><td class="left">${r.n}</td><td class="mono">${r.v}</td><td class="left">${r.r}</td></tr>`));
 }
 
 // scroll reveal
