@@ -97,6 +97,34 @@ def goal_validation():
     }
 
 
+_AB_P = HERE / "ab_goal.json"
+_AB = json.loads(_AB_P.read_text()) if _AB_P.exists() else None
+
+
+def ab_goal():
+    """Track B5: matched goal-delta vs baseline arm (A/B)."""
+    if not _AB:
+        return None
+    b, g = _AB["baseline"], _AB["goal"]
+    return {
+        "complete": _AB["complete"],
+        "matched": _AB["matched"],
+        "baseline": {
+            "reward_tail": b["reward_tail"],
+            "final_stance_tail": b["final_stance_tail"],
+            "adopted_tail": b["adopted_tail"],
+            "n_iters": b["n_iters_recorded"],
+        },
+        "goal": {
+            "reward_tail": g["reward_tail"],
+            "final_stance_tail": g["final_stance_tail"],
+            "adopted_tail": g["adopted_tail"],
+            "goal_align_tail": g["goal_align_tail"],
+            "n_iters": g["n_iters_recorded"],
+        },
+    }
+
+
 def campaign3():
     """Final verdict for the v2-space + Bradley-Terry training run."""
     if not _C3_RESULTS.exists():
@@ -473,6 +501,7 @@ pay = {
     "c3": campaign3(),
     "cal": calibration(),
     "goal": goal_validation(),
+    "ab": ab_goal(),
 }
 
 HTML = r"""<!DOCTYPE html>
@@ -994,6 +1023,25 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 </table>
 </div>
 
+<h3>campaign 6: goal-direction A/B</h3>
+<p style="max-width:820px;color:var(--ink-light)">A matched arm with <span class="mono">--goal-delta --align semdiff</span> against the no-goal baseline, identical protocol (v2 space, BT readout, 50 agents / 5 persuaders / erdos_renyi / 10 periods, <span class="mono">obs_mode=pair</span>, seed 0, paired eval on 50 shared seeds every 20 iterations). The only difference is the goal-direction injection.</p>
+<div class="table-wrapper">
+<table>
+  <thead><tr><th class="left">paired eval @ iter</th><th>baseline greedy</th><th>goal-delta greedy</th><th>Δ (goal−base)</th><th class="left">reading</th></tr></thead>
+  <tbody id="abTable"></tbody>
+</table>
+</div>
+<div class="aside-container">
+  <div class="aside">
+    <div class="sidebar-title">goal alignment under reward</div>
+    <p id="abGoal">—</p>
+  </div>
+  <div class="aside">
+    <div class="sidebar-title">goal metrics (tail mean)</div>
+    <p id="abMetrics">—</p>
+  </div>
+</div>
+
 <div class="flyout">
   <div class="flyout-title">validation gate (run before committing)</div>
   <p>Any candidate strategy space must clear all three, measured exactly as here: realisability <span class="mono">NN ≥ 0.60</span>; readability <span class="mono">judge SD ≥ 0.15</span> and <span class="mono">modal &lt; 40%</span>; and a target×action oracle gain that exceeds the per-episode reward noise (<span class="mono">SE ≈ 0.53</span>). A space that fails the third is unlearnable no matter how diverse its posts.</p>
@@ -1435,6 +1483,31 @@ if(D.goal){
   ];
   rows.forEach(r=>st.insertAdjacentHTML('beforeend',
     `<tr><td class="left">${r.n}</td><td class="mono">${r.v}</td><td class="left">${r.r}</td></tr>`));
+}
+
+// --- campaign 6: goal-direction A/B ---
+if(D.ab){
+  const a=D.ab, st=document.getElementById('abTable');
+  if(!a.complete && a.matched.length===0){
+    st.insertAdjacentHTML('beforeend',
+      `<tr><td class="left">run in progress</td><td colspan="4">goal-delta arm at iteration ${a.goal.n_iters}; first paired checkpoint at iter 20.</td></tr>`);
+  } else {
+    a.matched.forEach(m=>{
+      const d=m.g_greedy-m.b_greedy;
+      const cls=d>0?'pos':(d<0?'neg':'');
+      st.insertAdjacentHTML('beforeend',
+        `<tr><td class="left">@ ${m.iter}</td><td>${m.b_greedy.toFixed(3)}</td>`+
+        `<td>${m.g_greedy.toFixed(3)}</td>`+
+        `<td class="${cls}">${d>0?'+':''}${d.toFixed(3)}</td>`+
+        `<td class="left">${m.g_d>0?'goal arm learns (vs random +'+m.g_d.toFixed(2)+')':'—'}</td></tr>`);
+    });
+  }
+  const gg=document.getElementById('abGoal');
+  if(gg) gg.innerHTML=(a.goal.goal_align_tail==null)
+    ? 'no goal-arm iterations recorded yet.'
+    : `mean a(m) over the second half of the run: <span class="mono">${a.goal.goal_align_tail.toFixed(3)}</span> (0.5 = neutral, &gt;0.5 = net on-goal).`;
+  const gm=document.getElementById('abMetrics');
+  if(gm) gm.innerHTML=`baseline: tail stance <span class="mono">${a.baseline.final_stance_tail}</span>, adopted <span class="mono">${a.baseline.adopted_tail}</span>; goal: tail stance <span class="mono">${a.goal.final_stance_tail==null?'—':a.goal.final_stance_tail}</span>, adopted <span class="mono">${a.goal.adopted_tail==null?'—':a.goal.adopted_tail}</span>.`;
 }
 
 // scroll reveal
