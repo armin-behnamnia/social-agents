@@ -99,29 +99,37 @@ def goal_validation():
 
 _AB_P = HERE / "ab_goal.json"
 _AB = json.loads(_AB_P.read_text()) if _AB_P.exists() else None
+_GOALB_P = HERE / "goal_backends.json"
+_GOALB = json.loads(_GOALB_P.read_text()) if _GOALB_P.exists() else None
+
+
+def goal_backends():
+    """Do the a(m) backends separate on the real rendered messages?"""
+    if not _GOALB:
+        return None
+    return {
+        "n": _GOALB["n_strategies"],
+        "means": _GOALB["means"],
+        "sanity": _GOALB["directional_sanity"],
+        "rows": _GOALB["rows"],
+    }
 
 
 def ab_goal():
-    """Track B5: matched goal-delta vs baseline arm (A/B)."""
+    """Track B5: matched goal-delta arms vs baseline (A/B)."""
     if not _AB:
         return None
-    b, g = _AB["baseline"], _AB["goal"]
+    arms = _AB["arms"]
     return {
         "complete": _AB["complete"],
+        "arms": {
+            k: {key: v[key] for key in (
+                "name", "backend", "goal_delta", "complete", "n_iters",
+                "reward_tail", "final_stance_tail", "adopted_tail",
+                "goal_align_tail")}
+            for k, v in arms.items()
+        },
         "matched": _AB["matched"],
-        "baseline": {
-            "reward_tail": b["reward_tail"],
-            "final_stance_tail": b["final_stance_tail"],
-            "adopted_tail": b["adopted_tail"],
-            "n_iters": b["n_iters_recorded"],
-        },
-        "goal": {
-            "reward_tail": g["reward_tail"],
-            "final_stance_tail": g["final_stance_tail"],
-            "adopted_tail": g["adopted_tail"],
-            "goal_align_tail": g["goal_align_tail"],
-            "n_iters": g["n_iters_recorded"],
-        },
     }
 
 
@@ -501,6 +509,7 @@ pay = {
     "c3": campaign3(),
     "cal": calibration(),
     "goal": goal_validation(),
+    "goal_backends": goal_backends(),
     "ab": ab_goal(),
 }
 
@@ -1024,17 +1033,23 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 </div>
 
 <h3>campaign 6: goal-direction A/B</h3>
-<p style="max-width:820px;color:var(--ink-light)">A matched arm with <span class="mono">--goal-delta --align semdiff</span> against the no-goal baseline, identical protocol (v2 space, BT readout, 50 agents / 5 persuaders / erdos_renyi / 10 periods, <span class="mono">obs_mode=pair</span>, seed 0, paired eval on 50 shared seeds every 20 iterations). The only difference is the goal-direction injection.</p>
+<p style="max-width:820px;color:var(--ink-light)">The injection is only as good as <span class="mono">a(m)</span>. Two matched goal-delta arms run against the no-goal baseline under an identical protocol (v2 space, BT readout, 50 agents / 5 persuaders / erdos_renyi / 10 periods, <span class="mono">obs_mode=pair</span>, seed 0, paired eval on 50 shared seeds every 20 iterations); they differ only in the alignment backend — and, since campaign 5, the injection applies to the RL persuader's messages only, not the crowd's physics.</p>
 <div class="table-wrapper">
 <table>
-  <thead><tr><th class="left">paired eval @ iter</th><th>baseline greedy</th><th>goal-delta greedy</th><th>Δ (goal−base)</th><th class="left">reading</th></tr></thead>
+  <thead><tr><th class="left">a(m) backend (n real messages)</th><th>semdiff</th><th>semdiff+seed</th><th>judge</th><th class="left">reading</th></tr></thead>
+  <tbody id="gbTable"></tbody>
+</table>
+</div>
+<div class="table-wrapper">
+<table>
+  <thead><tr><th class="left">paired eval @ iter</th><th>baseline</th><th>goal (semdiff)</th><th>goal (judge)</th><th class="left">reading</th></tr></thead>
   <tbody id="abTable"></tbody>
 </table>
 </div>
 <div class="aside-container">
   <div class="aside">
-    <div class="sidebar-title">goal alignment under reward</div>
-    <p id="abGoal">—</p>
+    <div class="sidebar-title">the backend is the crux</div>
+    <p id="abBackend">—</p>
   </div>
   <div class="aside">
     <div class="sidebar-title">goal metrics (tail mean)</div>
@@ -1485,29 +1500,73 @@ if(D.goal){
     `<tr><td class="left">${r.n}</td><td class="mono">${r.v}</td><td class="left">${r.r}</td></tr>`));
 }
 
+// --- campaign 6: a(m) backend comparison ---
+if(D.goal_backends){
+  const g=D.goal_backends, st=document.getElementById('gbTable');
+  const M=g.means, S=g.sanity;
+  st.insertAdjacentHTML('beforeend',
+    `<tr><td class="left">mean a(m) on ${g.n} real strategy messages</td>`+
+    `<td class="mono">${M.semdiff.toFixed(3)}</td>`+
+    `<td class="mono">${M.semdiff_seed.toFixed(3)}</td>`+
+    `<td class="mono">${M.judge.toFixed(3)}</td>`+
+    `<td class="left">0.5 = neutral; only the judge reads the on-goal corpus as on-goal</td></tr>`);
+  st.insertAdjacentHTML('beforeend',
+    `<tr><td class="left">directional sanity (short anti / pro)</td>`+
+    `<td class="mono">${S.semdiff.anti} / ${S.semdiff.pro}</td>`+
+    `<td class="mono">${S.semdiff_seed.anti} / ${S.semdiff_seed.pro}</td>`+
+    `<td class="mono">${S.judge.anti} / ${S.judge.pro}</td>`+
+    `<td class="left">all pass on hand-built posts — embeddings still fail on real ones</td></tr>`);
+}
+
 // --- campaign 6: goal-direction A/B ---
 if(D.ab){
   const a=D.ab, st=document.getElementById('abTable');
-  if(!a.complete && a.matched.length===0){
+  const byArm={};
+  Object.entries(a.matched).forEach(([k,rows])=>{
+    byArm[k]={}; rows.forEach(m=>{byArm[k][m.iter]=m;});
+  });
+  const iters=new Set();
+  Object.values(byArm).forEach(o=>Object.keys(o).forEach(k=>iters.add(+k)));
+  const sorted=[...iters].sort((x,y)=>x-y);
+  if(sorted.length===0){
     st.insertAdjacentHTML('beforeend',
-      `<tr><td class="left">run in progress</td><td colspan="4">goal-delta arm at iteration ${a.goal.n_iters}; first paired checkpoint at iter 20.</td></tr>`);
-  } else {
-    a.matched.forEach(m=>{
-      const d=m.g_greedy-m.b_greedy;
-      const cls=d>0?'pos':(d<0?'neg':'');
-      st.insertAdjacentHTML('beforeend',
-        `<tr><td class="left">@ ${m.iter}</td><td>${m.b_greedy.toFixed(3)}</td>`+
-        `<td>${m.g_greedy.toFixed(3)}</td>`+
-        `<td class="${cls}">${d>0?'+':''}${d.toFixed(3)}</td>`+
-        `<td class="left">${m.g_d>0?'goal arm learns (vs random +'+m.g_d.toFixed(2)+')':'—'}</td></tr>`);
-    });
+      `<tr><td class="left">run in progress</td><td colspan="4">no matched checkpoints yet (first paired checkpoint at iter 20).</td></tr>`);
   }
-  const gg=document.getElementById('abGoal');
-  if(gg) gg.innerHTML=(a.goal.goal_align_tail==null)
-    ? 'no goal-arm iterations recorded yet.'
-    : `mean a(m) over the second half of the run: <span class="mono">${a.goal.goal_align_tail.toFixed(3)}</span> (0.5 = neutral, &gt;0.5 = net on-goal).`;
+  const cell=m=> m
+    ? `${m.g_greedy.toFixed(3)} <span class="mono" style="color:var(--ink-muted)">(d+${m.g_d.toFixed(2)})</span>`
+    : '—';
+  sorted.forEach(it=>{
+    const s=(byArm['goal_semdiff']||{})[it];
+    const j=(byArm['goal_judge']||{})[it];
+    const b=(s||j).b_greedy;
+    const reading=(j && s)
+      ? (j.g_d>0 ? 'judge arm learns; semdiff collapses' : '—')
+      : (j ? 'judge arm learns' : 'semdiff arm collapses');
+    st.insertAdjacentHTML('beforeend',
+      `<tr><td class="left">@ ${it}</td><td class="mono">${b.toFixed(3)}</td>`+
+      `<td class="mono">${cell(s)}</td><td class="mono">${cell(j)}</td>`+
+      `<td class="left">${reading}</td></tr>`);
+  });
+  const B=a.arms;
+  const ab=document.getElementById('abBackend');
+  if(ab){
+    const gs=B.goal_semdiff, gj=B.goal_judge;
+    ab.innerHTML=`On the real messages the embedding backends read <span class="mono">a(m)≈0.51</span> (neutral) `+
+      `while the judge reads <span class="mono">≈0.98</span>. With <span class="mono">s_eff = s_src·(2a−1)</span>, `+
+      `a≈0.5 zeroes the pull: the semdiff arm stalls (tail stance <span class="mono">${gs.final_stance_tail}</span>, `+
+      `adopted <span class="mono">${gs.adopted_tail}</span>, reward <span class="mono">${gs.reward_tail}</span>). `+
+      `The judge arm keeps <span class="mono">a(m)≈${gj.goal_align_tail==null?'—':gj.goal_align_tail}</span> `+
+      `(tail reward <span class="mono">${gj.reward_tail==null?'—':gj.reward_tail}</span>).`;
+  }
   const gm=document.getElementById('abMetrics');
-  if(gm) gm.innerHTML=`baseline: tail stance <span class="mono">${a.baseline.final_stance_tail}</span>, adopted <span class="mono">${a.baseline.adopted_tail}</span>; goal: tail stance <span class="mono">${a.goal.final_stance_tail==null?'—':a.goal.final_stance_tail}</span>, adopted <span class="mono">${a.goal.adopted_tail==null?'—':a.goal.adopted_tail}</span>.`;
+  if(gm){
+    const gs=B.goal_semdiff, gj=B.goal_judge, bb=B.baseline;
+    gm.innerHTML=`tail mean — baseline: stance <span class="mono">${bb.final_stance_tail}</span>, `+
+      `adopted <span class="mono">${bb.adopted_tail}</span>; `+
+      `semdiff: stance <span class="mono">${gs.final_stance_tail}</span>, adopted <span class="mono">${gs.adopted_tail}</span>; `+
+      `judge: stance <span class="mono">${gj.final_stance_tail==null?'—':gj.final_stance_tail}</span>, `+
+      `adopted <span class="mono">${gj.adopted_tail==null?'—':gj.adopted_tail}</span>.`;
+  }
 }
 
 // scroll reveal

@@ -1,0 +1,122 @@
+{
+  "timestamp": "2026-10-16T11:58:26.293087+00:00",
+  "n_strategies": 12,
+  "proposition_anchor": true,
+  "directional_sanity": {
+    "semdiff_seed": {
+      "anti": 0.679,
+      "pro": 0.321
+    },
+    "semdiff": {
+      "anti": 0.613,
+      "pro": 0.312
+    },
+    "judge": {
+      "anti": 1.0,
+      "pro": 0.0
+    }
+  },
+  "means": {
+    "semdiff": 0.508,
+    "semdiff_seed": 0.519,
+    "judge": 0.975
+  },
+  "rows": [
+    {
+      "index": 0,
+      "strategy": "angle=cost, evidence=statistic, address=taxpayer",
+      "message": "This will cost you, Henry\u2014as a taxpayer, roughly $1,200 a year for a program that doesn\u2019t touch your bottom line. That\u2019s 3% of your salary gone to fund something you\u2019ll never use. I\u2019d rather keep that",
+      "semdiff": 0.534,
+      "semdiff_seed": 0.527,
+      "judge": 0.95
+    },
+    {
+      "index": 6,
+      "strategy": "angle=cost, evidence=anecdote, address=taxpayer",
+      "message": "This will cost you real money\u2014higher taxes to fund a program that doesn\u2019t touch your bottom line. I\u2019m a taxpayer too, and last quarter I watched $40 of my paycheck go to admin fees, not results. You w",
+      "semdiff": 0.511,
+      "semdiff_seed": 0.53,
+      "judge": 1.0
+    },
+    {
+      "index": 13,
+      "strategy": "angle=safety, evidence=statistic, address=parent",
+      "message": "As a parent, my first thought is your safety\u2014and I\u2019d never forgive myself if a policy put you in harm\u2019s way. Studies show that 68% of violent incidents happen in poorly lit, unmonitored areas, and thi",
+      "semdiff": 0.509,
+      "semdiff_seed": 0.523,
+      "judge": 0.95
+    },
+    {
+      "index": 19,
+      "strategy": "angle=safety, evidence=anecdote, address=parent",
+      "message": "As a parent, my biggest fear is that this policy puts your safety at risk the moment you leave for work. I once watched my own son wait 20 minutes for a bus in the dark, and I couldn\u2019t shake the thoug",
+      "semdiff": 0.518,
+      "semdiff_seed": 0.566,
+      "judge": 0.95
+    },
+    {
+      "index": 26,
+      "strategy": "angle=fairness, evidence=statistic, address=worker",
+      "message": "As an accountant, I see the numbers clearly: 40% of our workforce would be left out of this policy\u2019s benefits. That\u2019s not fair to the clerks, the janitors, the support staff who keep our firm running.",
+      "semdiff": 0.47,
+      "semdiff_seed": 0.488,
+      "judge": 0.95
+    },
+    {
+      "index": 32,
+      "strategy": "angle=fairness, evidence=anecdote, address=worker",
+      "message": "My clients aren\u2019t the only ones left out\u2014my own overtime hours vanish under this policy, and last Tuesday I watched a single mother\u2019s tax refund get delayed while I logged 12 hours for nothing. I know",
+      "semdiff": 0.521,
+      "semdiff_seed": 0.525,
+      "judge": 1.0
+    },
+    {
+      "index": 39,
+      "strategy": "angle=freedom, evidence=expert, address=taxpayer",
+      "message": "My tax dollars shouldn\u2019t decide my life\u2019s path\u2014and yours shouldn\u2019t either. When policy strips your choice to work, learn, or create on your own terms, that\u2019s not progress. The Cato Institute\u2019s researc",
+      "semdiff": 0.507,
+      "semdiff_seed": 0.498,
+      "judge": 1.0
+    },
+    {
+      "index": 45,
+      "strategy": "angle=freedom, evidence=peers, address=taxpayer",
+      "message": "I\u2019m tired of being told my tax dollars must fund art I never chose\u2014my Saturday pottery class is my choice, not a government mandate. My neighbours are skipping gallery taxes and paying for their own k",
+      "semdiff": 0.501,
+      "semdiff_seed": 0.502,
+      "judge": 1.0
+    },
+    {
+      "index": 52,
+      "strategy": "angle=community, evidence=expert, address=parent",
+      "message": "As a parent, I\u2019d hate to see our community lose the quiet, creative spaces\u2014like our local pottery studio\u2014that keep us connected. Dr. Emily Carter\u2019s research shows shared hobbies cut isolation. Don\u2019t l",
+      "semdiff": 0.494,
+      "semdiff_seed": 0.486,
+      "judge": 0.95
+    },
+    {
+      "index": 58,
+      "strategy": "angle=community, evidence=peers, address=parent",
+      "message": "As a parent, I worry our neighborhood\u2019s soul is what we\u2019ll lose if we rush this\u2014the quiet streets where kids still bike, the local shops we all rely on. My neighbours are already signing petitions and",
+      "semdiff": 0.519,
+      "semdiff_seed": 0.534,
+      "judge": 0.95
+    },
+    {
+      "index": 65,
+      "strategy": "angle=effectiveness, evidence=expert, address=worker",
+      "message": "I\u2019ve crunched the numbers on this policy, and it doesn\u2019t add up to its own goal. A 2023 Brookings study found similar mandates cut productivity by 8%\u2014not the boost promised. As an accountant, I see th",
+      "semdiff": 0.51,
+      "semdiff_seed": 0.528,
+      "judge": 1.0
+    },
+    {
+      "index": 71,
+      "strategy": "angle=effectiveness, evidence=peers, address=worker",
+      "message": "Does this policy actually cut emissions, or just shuffle the paperwork? My neighbours in accounting are already flagging the loopholes, and I\u2019m the one re-auditing every claim. It\u2019s more spreadsheets,",
+      "semdiff": 0.504,
+      "semdiff_seed": 0.526,
+      "judge": 1.0
+    }
+  ]
+}

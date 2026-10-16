@@ -577,6 +577,10 @@ class ElitePersuaderEnv:
             if self._goal_align_fn is not None and message:
                 goal_align = float(self._goal_align_fn(message))
                 persuader.message_goal_align = goal_align
+            else:
+                # no render this period -> do not carry a stale a(m) into
+                # the (persuader-only) goal-direction injection
+                persuader.message_goal_align = None
             action_records.append(
                 {
                     "persuader": pid,

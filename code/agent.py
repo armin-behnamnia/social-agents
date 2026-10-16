@@ -319,20 +319,15 @@ class LLMSocialAgent(NetworkAgent):
 
         if self.scenario.stance_influence_rate > 0:
             goal_align = None
-            if self.scenario.goal_delta and source_agent.post:
-                goal_align = getattr(
-                    source_agent, "message_goal_align", None
-                )
-                if goal_align is None:
-                    from .goal_align import get_align_fn
-
-                    fn = get_align_fn(
-                        self.scenario.goal_align,
-                        self.scenario.goal_proposition,
-                        self.scenario.goal_anti_proposition,
-                    )
-                    goal_align = float(fn(source_agent.post)) if fn else 1.0
-                    source_agent.message_goal_align = goal_align
+            if self.scenario.goal_delta:
+                # Only the RL persuader's messages carry a measured a(m)
+                # (set in rl_env each step). The crowd keeps the paper's
+                # original dynamics: goal-direction shapes the *agent we
+                # train*, not the environment's crowd physics. Scoring every
+                # crowd post also cost a large number of embedding/LLM calls
+                # and, with a direction-blind backend, collapsed the whole
+                # diffusion (see RESULTS.md campaign 6).
+                goal_align = getattr(source_agent, "message_goal_align", None)
             self._last_goal_align = goal_align
             (
                 target_stance_before,

@@ -1,22 +1,24 @@
 #!/usr/bin/env python
 """Goal-direction A/B analysis (Track B5 / item 15).
 
-Compares the matched goal-delta arm against the no-goal baseline
-(``output/ppo_v2_bt/live_run2``) at shared paired-eval iterations. Both runs
-use the identical protocol (v2 space, BT readout, 50 agents / 5 persuaders /
+Compares matched goal-delta arms against the no-goal baseline
+(``output/ppo_v2_bt/live_run2``) at shared paired-eval iterations. Every run
+uses the identical protocol (v2 space, BT readout, 50 agents / 5 persuaders /
 erdos_renyi / 10 periods, ``--obs-mode pair``, ``--target-selection
 random_neighbor``, seed 0, paired eval on 50 shared seeds every 20 iters);
-the *only* difference is ``--goal-delta --align semdiff``.
+the arms differ only in the goal-alignment backend:
 
-Reward is not directly comparable across the two dynamics, so the readout is
-(a) within-arm learning (greedy vs random on the same seeds), (b) the goal
-metrics the plan asks for (mean_final_stance, adopted), and (c) for the goal
-arm only, the ``a(m)`` trajectory — whether the policy drives its messages
-more on-goal under the reward.
+- ``baseline``      — no injection
+- ``goal_semdiff``  — ``--goal-delta --align semdiff``  (embedding backend)
+- ``goal_judge``    — ``--goal-delta --align judge``    (LLM backend)
+
+Reward is not directly comparable across differing dynamics, so the readout
+is (a) within-arm learning (greedy vs random on the same seeds), (b) the goal
+metrics the plan asks for (mean_final_stance, adopted), and (c) the ``a(m)``
+trajectory — whether the policy drives its messages more on-goal.
 
 Writes ``report/ab_goal.json`` (consumed by ``report/build_report.py``).
-Runnable at any time: an in-progress goal arm is reported as ``complete:
-false`` with whatever checkpoints exist so far.
+Runnable at any time: an in-progress arm is reported as ``complete: false``.
 """
 from __future__ import annotations
 
@@ -28,10 +30,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 
-BASELINE = ROOT / "output/ppo_v2_bt/live_run2"
-BASELINE_LOG = ROOT / "output/ppo_v2_bt/train2.log"
-GOAL = ROOT / "output/ppo_v2_goal/live_goal"
-GOAL_LOG = ROOT / "output/ppo_v2_goal/goal.log"
+# name -> (run dir, log path, is_goal_arm, backend)
+ARMS = {
+    "baseline": (ROOT / "output/ppo_v2_bt/live_run2",
+                 ROOT / "output/ppo_v2_bt/train2.log", False, None),
+    "goal_semdiff": (ROOT / "output/ppo_v2_goal/live_goal",
+                     ROOT / "output/ppo_v2_goal/goal.log", True, "semdiff"),
+    "goal_judge": (ROOT / "output/ppo_v2_goal/live_goal_judge",
+                   ROOT / "output/ppo_v2_goal/goal_judge.log", True, "judge"),
+}
 
 _PAIRED = re.compile(
     r"paired eval @ (\d+): greedy ([\d.]+) \| random ([\d.]+) "
@@ -51,8 +58,7 @@ def paired_evals(log_path: Path) -> list[dict]:
                 "random": float(m.group(3)), "d": float(m.group(4)),
                 "t": float(m.group(5)), "heuristic": float(m.group(6)),
             })
-    # de-dup (resumed runs repeat lines), keep the last per iteration
-    by = {e["iter"]: e for e in out}
+    by = {e["iter"]: e for e in out}  # resumed runs repeat lines
     return [by[k] for k in sorted(by)]
 
 
@@ -62,14 +68,8 @@ def history(run_dir: Path) -> list[dict]:
         return []
     h = json.loads(p.read_text()).get("history", [])
     keep = ("iteration", "mean_episode_reward", "mean_final_stance",
-            "mean_adopted", "train_goal_align", "train_judge_src",
-            "train_strategy_entropy")
+            "mean_adopted", "train_goal_align")
     return [{k: r.get(k) for k in keep} for r in h]
-
-
-def results(run_dir: Path) -> dict | None:
-    p = run_dir / "results.json"
-    return json.loads(p.read_text()) if p.exists() else None
 
 
 def _mean(xs):
@@ -77,76 +77,65 @@ def _mean(xs):
     return round(sum(xs) / len(xs), 4) if xs else None
 
 
-def arm(name: str, run_dir: Path, log: Path) -> dict:
-    ev = paired_evals(log)
+def arm(name: str) -> dict:
+    run_dir, log, is_goal, backend = ARMS[name]
     h = history(run_dir)
     tail = h[len(h) // 2:] if h else []
     return {
         "name": name,
-        "seed": 0,
-        "goal_delta": name == "goal",
-        "paired": ev,
-        "n_iters_recorded": len(h),
+        "backend": backend,
+        "goal_delta": is_goal,
+        "complete": (run_dir / "results.json").exists(),
+        "paired": paired_evals(log),
+        "n_iters": len(h),
         "reward_tail": _mean([r["mean_episode_reward"] for r in tail]),
         "final_stance_tail": _mean([r["mean_final_stance"] for r in tail]),
         "adopted_tail": _mean([r["mean_adopted"] for r in tail]),
         "goal_align_tail": _mean([r["train_goal_align"] for r in tail]),
         "goal_align_series": [
             None if r.get("train_goal_align") is None
-            else round(r["train_goal_align"], 4) for r in h
-        ],
-        "reward_series": [
-            None if r.get("mean_episode_reward") is None
-            else round(r["mean_episode_reward"], 4) for r in h
-        ],
-        "results": results(run_dir),
+            else round(r["train_goal_align"], 4) for r in h],
     }
 
 
 def main() -> int:
-    base = arm("baseline", BASELINE, BASELINE_LOG)
-    goal = arm("goal", GOAL, GOAL_LOG)
-    base_by = {e["iter"]: e for e in base["paired"]}
-    matched = []
-    for e in goal["paired"]:
-        b = base_by.get(e["iter"])
-        if b:
-            matched.append({
-                "iter": e["iter"],
-                "b_greedy": b["greedy"], "g_greedy": e["greedy"],
-                "b_d": b["d"], "g_d": e["d"],
-                "b_t": b["t"], "g_t": e["t"],
-            })
-    complete = (GOAL / "results.json").exists()
+    arms = {n: arm(n) for n in ARMS}
+    base_by = {e["iter"]: e for e in arms["baseline"]["paired"]}
+    matched = {}
+    for n, a in arms.items():
+        if not a["goal_delta"]:
+            continue
+        rows = []
+        for e in a["paired"]:
+            b = base_by.get(e["iter"])
+            if b:
+                rows.append({
+                    "iter": e["iter"],
+                    "b_greedy": b["greedy"], "g_greedy": e["greedy"],
+                    "b_d": b["d"], "g_d": e["d"], "g_t": e["t"],
+                })
+        matched[n] = rows
+
     payload = {
-        "complete": complete,
+        "complete": all(a["complete"] for a in arms.values()),
         "protocol": {
             "space": "v2", "judge": "bt", "agents": 50, "persuaders": 5,
             "topology": "erdos_renyi", "periods": 10, "obs_mode": "pair",
             "target_selection": "random_neighbor", "paired_eval_every": 20,
             "paired_eval_episodes": 50, "seed": 0,
-            "goal_arm": "--goal-delta --align semdiff",
         },
-        "baseline": base,
-        "goal": goal,
+        "arms": arms,
         "matched": matched,
-        "summary": {
-            "n_matched_checkpoints": len(matched),
-            "baseline_learns": (matched and
-                                all(m["b_d"] > 0 for m in matched)),
-            "goal_learns": (matched and
-                            all(m["g_d"] > 0 for m in matched)),
-            "goal_align_tail": goal["goal_align_tail"],
-        },
     }
     out = ROOT / "report/ab_goal.json"
     out.write_text(json.dumps(payload, indent=2))
-    print(f"[+] wrote {out}  complete={complete}  "
-          f"matched={len(matched)} checkpoints")
-    for m in matched:
-        print(f"    iter {m['iter']:>3}: baseline greedy {m['b_greedy']:.3f} "
-              f"(d+{m['b_d']:.3f}) | goal greedy {m['g_greedy']:.3f} "
-              f"(d+{m['g_d']:.3f})")
+    print(f"[+] wrote {out}  complete={payload['complete']}")
+    for n, rows in matched.items():
+        print(f"  [{n}]")
+        for m in rows:
+            print(f"    iter {m['iter']:>3}: baseline {m['b_greedy']:.3f} "
+                  f"(d+{m['b_d']:.3f}) | arm {m['g_greedy']:.3f} "
+                  f"(d+{m['g_d']:.3f})")
     return 0
 
 
