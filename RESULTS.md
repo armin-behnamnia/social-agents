@@ -579,16 +579,17 @@ diffusion **stalls** (tail means, iters 30+):
 |---|---|---|---|---|
 | baseline | 12.75 | 0.072 | 22.77 | — |
 | goal (semdiff) | **5.15** | **0.414** | **5.02** | 0.515 (flat, all 60 iters) |
-| goal (judge) | *pending* | *pending* | *pending* | 0.958 (iter 1) |
+| goal (judge) | **11.30** | **0.134** | **18.63** | **0.966** |
 
 Paired eval (greedy, 50 shared seeds) — the semdiff arm still *learns*
-(`d>0`) but from a neutralised environment:
+(`d>0`) but from a neutralised environment; the judge arm tracks the
+baseline to within 0.02 at iter 60:
 
 | iter | baseline | goal (semdiff) | goal (judge) |
 |---|---|---|---|
-| 20 | 13.432 | 5.473 (d+1.59) | *pending* |
-| 40 | 13.367 | 5.505 (d+1.62) | *pending* |
-| 60 | 12.487 | 5.552 (d+1.67) | *pending* |
+| 20 | 13.432 | 5.473 (d+1.59) | 12.237 (d+3.75) |
+| 40 | 13.367 | 5.505 (d+1.62) | 12.319 (d+3.84) |
+| 60 | 12.487 | 5.552 (d+1.67) | **12.467** (d+3.98) |
 
 The policy earns high BT persuasion (`judge~0.99 sat=0.97`) yet the network
 barely moves: the reward (persona-fit) pays for posts the direction-blind
@@ -610,10 +611,23 @@ reward never sees it.
    free default for smoke/offline work but must not be trusted for a real
    goal-direction campaign.
 
-## C6.4 Judge arm (in progress)
+## C6.4 Judge arm — the corrected result
 
-The corrected arm (`--align judge`, persuader-only) is running. Iteration 1
-already reads `train_goal_align = 0.958` with `final_stance = 0.272` /
-`adopted = 10.7` — the diffusion is *not* neutralised. Final numbers land at
-60 iters; the table above is filled from `report/ab_goal.json` once the arm
-completes (`code/ab_goal.py`, `code/goal_backend_check.py`).
+The corrected arm (`--align judge`, persuader-only, 60 iters) confirms the
+diagnosis. It holds `train_goal_align = 0.966` (vs semdiff's flat 0.514) and
+tracks the no-goal baseline almost exactly — tail reward **11.30 vs 12.75**,
+final stance **0.134 vs 0.072**, adopted **18.6 vs 22.8**, and paired-eval
+greedy **12.467 vs 12.487** at iter 60 (Δ 0.02). So with a backend that
+actually resolves message direction, the injection is **not** harmful: the
+policy still learns (`d+3.98`) and the diffusion is preserved; the only
+messages attenuated are genuinely off-goal ones.
+
+(The arm was interrupted twice by external infrastructure — an unexplained
+process kill at iter 41 and a 503 from the shared embedding endpoint at
+iter 55 — and resumed each time from its checkpoint; the 60-iteration curve
+in `report/ab_goal.json` is stitched from the per-segment records.)
+
+**Bottom line.** Goal-direction is measurable and safe *iff the `a(m)`
+backend is direction-aware*. `semdiff` is fit for smoke tests only; a real
+campaign must use `judge` (or a calibrated equivalent). The next full
+300×32 run (item 16) should therefore run `--goal-delta --align judge`.

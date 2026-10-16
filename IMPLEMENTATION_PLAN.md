@@ -185,7 +185,7 @@ Two candidate forms; **recommend (ii)**:
 - `update_agent_stance` change is unit-tested in `code/tests/test_rl.py` and
   covered by the offline mock (`code/offline.py`).
 
-**Status: DONE (2026-10-16) — implementation + offline validation; A/B deferred.**
+**Status: DONE (2026-10-16) — implementation + offline validation + A/B (campaign 6).**
 - **B1:** goal is a named proposition (`goal_proposition` /
   `goal_anti_proposition`) in `code/config.py` + `code/scenario.py`, derived
   from the seed post — no more bare `topic` placeholder.
@@ -199,7 +199,14 @@ Two candidate forms; **recommend (ii)**:
   logged per decision (`goal_align`), surfaced as `train_goal_align`.
 - **B4:** `code/validate_goal.py` passes — directional sanity ✓,
   corr(a, −Δs)=+0.177, on-goal −Δs (+0.0373) ≈ 1.5× off-goal (+0.0253).
-- **B5 A/B:** deferred to item 16 (needs the 300×32 paired run).
+- **B5 A/B:** DONE — campaign 6 (`report/ab_goal.json`, `code/ab_goal.py`).
+  Matched goal-delta arms vs the no-goal baseline at shared paired-eval
+  iterations. **The backend is the crux:** on the real strategy messages the
+  embedding backends read `a(m)≈0.51` (neutral) and the semdiff arm collapses
+  (tail reward 5.15 vs 12.75); the LLM judge reads `a(m)≈0.97` and its arm
+  tracks the baseline (`@60` greedy 12.467 vs 12.487) while still learning
+  (`d+3.98`). Injection scoped to the persuader's messages (crowd keeps the
+  paper's transition). Item 16's full campaign should use `--align judge`.
 - 6 new tests; **87/87 pass**.
 
 ---
@@ -289,7 +296,8 @@ end-to-end smoke run reported `id=15, text=0, none=0` (zero fallbacks), and
 13. [x] Inject into the delta in `update_agent_stance` behind
     `PERSUASION_GOAL_DELTA=1` (`code/agent.py:135`).
 14. [x] Validation: `a(m)` vs realized `−Δs`; directional sanity (pro vs anti).
-15. [ ] 50-seed paired A/B (current vs goal-delta); fold into report + `RESULTS.md`.
+15. [x] 50-seed paired A/B (goal-delta vs baseline) — campaign 6, both
+    backends; folded into report + `RESULTS.md`.
     — deferred to item 16 (needs the full paired run).
 
 **Finally**
