@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 from Melodie import Environment
@@ -221,6 +222,7 @@ class LLMEnvironment(Environment):
                     continue
 
                 target_agent.exposure_count += 1
+                if target_agent.exposure_count > k: continue
                 if source_agent.stance < 0:
                     self.select_post(source_agent, target_agent)
                 target_agent.infection_stance_aware(agents,period,self.diffusion_events,self.message_events,source_agent)
@@ -259,7 +261,7 @@ class LLMEnvironment(Environment):
 
                 target.exposure_count += 1
 
-                if target.exposure_count < k: continue
+                #if target.exposure_count < k: continue
                 if source.stance<0:
                     self.select_post(source, target)
                 emerged = target.infection(agents, period, self.diffusion_events, self.message_events, source)
@@ -267,7 +269,7 @@ class LLMEnvironment(Environment):
                 if emerged:
                     self.update_observer(target, period)
  
-                    if target.stance <= 0 and tid not in queued:
+                    if tid not in queued:
                         queue.append(target)
                         queued.add(tid)
 
