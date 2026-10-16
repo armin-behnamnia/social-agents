@@ -301,3 +301,92 @@ class TestInfluenceInstrumentation:
         a, b0 = fit_logistic_nn(X, y)
         assert np.all(a >= 0)          # constrained
         assert np.isfinite(b0)
+
+
+class TestGoalDirection:
+    """Track B: a(m) is measured and injected into the stance delta."""
+
+    def _agents(self):
+        from code.agent import LLMSocialAgent
+
+        sc = LLMScenario(agent_num=3, seed=1)
+        src = LLMSocialAgent(0, scenario=sc)
+        src.stance = -1.0
+        tgt = LLMSocialAgent(1, scenario=sc)
+        tgt.stance = 0.65
+        return sc, src, tgt
+
+    def test_transition_direction(self):
+        import numpy as _np
+
+        _, src, tgt = self._agents()
+
+        def run(ga):
+            t = type(tgt)(1, scenario=tgt.scenario)
+            t.stance = 0.65
+            return t.update_agent_stance(src, 0.5, 0.4, goal_align=ga)
+
+        b1, a1 = run(1.0)   # on-goal: toward source (-1)
+        bm, am = run(0.5)   # neutral: toward 0
+        b0, a0 = run(0.0)   # off-goal: away from goal (toward +1)
+        assert a1 < b1          # on-goal decreases stance
+        assert a0 > b0          # off-goal increases stance
+        assert a0 > am > a1     # ordering follows a(m)
+        assert a1 < 0.65 < a0   # bracketing the initial stance
+        # goal_align=None reproduces the original (paper) transition
+        _, an = run(None)
+        assert an == pytest.approx(0.65 + 0.5 * 0.4 * (-1.0 - 0.65))
+
+    def test_semdiff_formula(self, monkeypatch):
+        from code import goal_align, tools
+
+        vecs = {"GOAL": [1.0, 0.0], "ANTI": [0.0, 1.0],
+                "ON": [0.95, 0.05], "OFF": [0.05, 0.95]}
+        monkeypatch.setattr(tools, "text2embedding", lambda t: vecs[t])
+        fn = goal_align._semdiff_fn("GOAL", "ANTI", cache=False)
+        assert fn("ON") > 0.5
+        assert fn("OFF") < 0.5
+        assert fn("ON") > fn("OFF")
+
+    def test_get_align_none(self):
+        from code.goal_align import get_align_fn
+
+        assert get_align_fn("none") is None
+
+    def test_env_goal_delta_logs_and_injects(self, monkeypatch):
+        from code import tools
+
+        # deterministic, hermetic embeddings (no API): map text by keyword
+        def fake(t):
+            t = t.lower()
+            if "harmful" in t or "reject" in t:
+                return [1.0, 0.0]
+            if "beneficial" in t or "support" in t:
+                return [0.0, 1.0]
+            return [0.5, 0.5]
+
+        monkeypatch.setattr(tools, "text2embedding", fake)
+        import code.goal_align as ga
+        ga._CACHE.clear()
+
+        from code.rl_env import ElitePersuaderEnv
+
+        env = ElitePersuaderEnv(
+            scenario=LLMScenario(agent_num=12, rng_seed=3), n_periods=4,
+            obs_mode="summary",
+        )
+        env.scenario.goal_align = "semdiff"
+        env.scenario.goal_delta = True
+        # rebuild the align fn with the scenario's settings + patched embed
+        env._goal_align_fn = ga.get_align_fn(
+            "semdiff", env.scenario.goal_proposition,
+            env.scenario.goal_anti_proposition,
+        )
+        env.reset(seed=3)
+        _, _, _, _, info = env.step(0)
+        rec = info["persuader_actions"][0]
+        assert rec["goal_align"] is not None
+        assert 0.0 <= rec["goal_align"] <= 1.0
+        # the rendered persuader post is on-goal (mock echoes the strategy,
+        # and the default goal is the anti-policy proposition)
+        assert any("goal_align" in e for e in info["period_events"])

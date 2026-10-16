@@ -185,6 +185,23 @@ Two candidate forms; **recommend (ii)**:
 - `update_agent_stance` change is unit-tested in `code/tests/test_rl.py` and
   covered by the offline mock (`code/offline.py`).
 
+**Status: DONE (2026-10-16) — implementation + offline validation; A/B deferred.**
+- **B1:** goal is a named proposition (`goal_proposition` /
+  `goal_anti_proposition`) in `code/config.py` + `code/scenario.py`, derived
+  from the seed post — no more bare `topic` placeholder.
+- **B2:** `code/goal_align.py` — `semdiff` (default, reuses embeddings),
+  `nli` (offline fallback), `judge` (cached LLM), all cached. Measured
+  directional sanity: anti 0.665 > neutral 0.513 > pro 0.340 (semdiff).
+  Caveats recorded: semdiff is weak-but-monotone; the LLM judge is sharp on
+  clean posts but flaky on mixed/hedged ones.
+- **B3:** injected as `s_eff = s_src·(2a−1)` in `update_agent_stance`, behind
+  `--goal-delta` / `PERSUASION_GOAL_DELTA`; scored on the persuader post,
+  logged per decision (`goal_align`), surfaced as `train_goal_align`.
+- **B4:** `code/validate_goal.py` passes — directional sanity ✓,
+  corr(a, −Δs)=+0.177, on-goal −Δs (+0.0373) ≈ 1.5× off-goal (+0.0253).
+- **B5 A/B:** deferred to item 16 (needs the 300×32 paired run).
+- 6 new tests; **87/87 pass**.
+
 ---
 
 ## Track C — Harden the BT readout keying  ⭐ PRIORITY 1
@@ -267,12 +284,13 @@ end-to-end smoke run reported `id=15, text=0, none=0` (zero fallbacks), and
     `RESULTS.md` (Campaign 4); defaults unchanged for comparability.
 
 **Then — Track B (goal direction, behind a flag)**
-11. [ ] Define `G_goal`/`G_anti` proposition in config (replace placeholder topic).
-12. [ ] `code/goal_align.py`: `a(m)` backends (semdiff / NLI / goal-axis judge).
-13. [ ] Inject into the delta in `update_agent_stance` behind
+11. [x] Define `G_goal`/`G_anti` proposition in config (replace placeholder topic).
+12. [x] `code/goal_align.py`: `a(m)` backends (semdiff / NLI / goal-axis judge).
+13. [x] Inject into the delta in `update_agent_stance` behind
     `PERSUASION_GOAL_DELTA=1` (`code/agent.py:135`).
-14. [ ] Validation: `a(m)` vs realized `−Δs`; directional sanity (pro vs anti).
+14. [x] Validation: `a(m)` vs realized `−Δs`; directional sanity (pro vs anti).
 15. [ ] 50-seed paired A/B (current vs goal-delta); fold into report + `RESULTS.md`.
+    — deferred to item 16 (needs the full paired run).
 
 **Finally**
 16. [ ] Re-run the 300×32 campaign on a fresh output dir (v2 baselines stay

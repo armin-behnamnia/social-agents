@@ -124,6 +124,30 @@ class ScenarioConfig:
     use_post_evidence: bool = True
     use_profile_evidence: bool = True
 
+    # --- Track B: goal direction -------------------------------------
+    # The goal is now an explicit proposition, not a bare topic string.
+    # The seed post argues the policy is harmful and should be rejected
+    # (code/simulation.py `_seed_agents`), so the persuader's goal is the
+    # anti-policy proposition; `goal_anti_proposition` is its negation.
+    goal_proposition: str = (
+        "This policy is harmful and should be rejected."
+    )
+    goal_anti_proposition: str = (
+        "This policy is beneficial and should be supported."
+    )
+    # a(m) backend: none | semdiff | nli | judge (see code/goal_align.py)
+    goal_align: str = os.environ.get("PERSUASION_GOAL_ALIGN", "none")
+    # Inject the message's direction into the stance delta:
+    #   s_eff = s_src·(2a(m)−1);  s' = s + p·β·(s_eff − s)
+    # Default off so v1/v2/v3 runs stay comparable.
+    goal_delta: bool = os.environ.get("PERSUASION_GOAL_DELTA", "0") not in (
+        "", "0", "false", "False"
+    )
+    # Reward shaping: optional λ·a(m) per delivered message (0 = off).
+    goal_reward_lambda: float = float(
+        os.environ.get("PERSUASION_GOAL_LAMBDA", "0") or 0
+    )
+
     # Event log output
     output_dir: str = "output"
 

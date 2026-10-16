@@ -133,6 +133,18 @@ class ElitePersuaderEnv:
         self._judge_hits = 0
         self._judge_fallbacks = 0
 
+        # Track B: goal-alignment a(m) for rendered messages (optional).
+        from .goal_align import get_align_fn
+
+        self._goal_align_fn = get_align_fn(
+            getattr(self.scenario, "goal_align", "none"),
+            getattr(self.scenario, "goal_proposition", ""),
+            getattr(self.scenario, "goal_anti_proposition", ""),
+        )
+        self._goal_reward_lambda = float(
+            getattr(self.scenario, "goal_reward_lambda", 0.0) or 0.0
+        )
+
         self._learned_targets = target_selection == "learned"
         self._random_neighbor = target_selection == "random_neighbor"
         n_actions = (
@@ -561,6 +573,10 @@ class ElitePersuaderEnv:
             else:
                 judge_src = "none"
             persuader.message_persuasiveness = score
+            goal_align = None
+            if self._goal_align_fn is not None and message:
+                goal_align = float(self._goal_align_fn(message))
+                persuader.message_goal_align = goal_align
             action_records.append(
                 {
                     "persuader": pid,
@@ -570,6 +586,7 @@ class ElitePersuaderEnv:
                     "message": message,
                     "persuasiveness": score,
                     "judge_src": judge_src,
+                    "goal_align": goal_align,
                 }
             )
 
@@ -610,6 +627,13 @@ class ElitePersuaderEnv:
                     n_accept[i] += 1
         rewards += self.shaping_accept_bonus * n_accept
         rewards -= self.message_cost
+
+        # optional goal-alignment shaping: λ·a(m) per delivered message
+        if self._goal_reward_lambda and self._goal_align_fn is not None:
+            for rec in action_records:
+                i = self._persuader_index.get(rec["persuader"])
+                if i is not None and rec.get("goal_align") is not None:
+                    rewards[i] += self._goal_reward_lambda * rec["goal_align"]
 
         # optional cascade credit: discounted population movement,
         # shared by the whole persuader team (cooperative reward)

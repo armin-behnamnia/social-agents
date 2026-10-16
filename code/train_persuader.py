@@ -42,7 +42,9 @@ from .torch_trainer import (
 def build_env(cfg: PPOConfig, observer_inference: bool = False,
               target_selection: str = "learned",
               obs_mode: str = "matrix",
-              judge_fn=None) -> ElitePersuaderEnv:
+              judge_fn=None,
+              align: str = "none",
+              goal_delta: bool = False) -> ElitePersuaderEnv:
     scenario = LLMScenario(
         agent_num=cfg.agent_num,
         # Observer-side inference (Prompt 5) is not used by the RL
@@ -51,6 +53,10 @@ def build_env(cfg: PPOConfig, observer_inference: bool = False,
         use_post_evidence=observer_inference,
         use_profile_evidence=observer_inference,
     )
+    # Track B: goal alignment a(m) + goal-direction injection.
+    if align and align != "none":
+        scenario.goal_align = align
+    scenario.goal_delta = bool(goal_delta) or bool(scenario.goal_delta)
     return ElitePersuaderEnv(
         scenario=scenario,
         n_periods=cfg.n_periods,
@@ -333,6 +339,13 @@ def main() -> int:
     parser.add_argument("--bt-table", type=str, default=None,
                         help="path to a BT reward-model table (built if "
                              "absent); defaults to <output-dir>/bt_judge.json")
+    parser.add_argument("--align", choices=["none", "semdiff", "nli", "judge"],
+                        default="none",
+                        help="Track B: goal-alignment backend a(m) "
+                             "(semdiff reuses the embedding backend)")
+    parser.add_argument("--goal-delta", action="store_true",
+                        help="Track B: inject a(m) into the stance delta "
+                             "(s_eff = s_src·(2a−1)); default off")
     parser.add_argument("--bt-opponents", type=int, default=10,
                         help="pairwise comparisons per message when "
                              "building the BT table")
@@ -501,6 +514,8 @@ def main() -> int:
         target_selection=args.target_selection,
         obs_mode=args.obs_mode,
         judge_fn=judge_fn,
+        align=args.align,
+        goal_delta=args.goal_delta,
     )
     trainer = PPOTrainer(
         env,
@@ -510,6 +525,8 @@ def main() -> int:
             target_selection=args.target_selection,
             obs_mode=args.obs_mode,
             judge_fn=judge_fn,
+            align=args.align,
+            goal_delta=args.goal_delta,
         ),
     )
     print(f"[*] training on device: {trainer.device}; "

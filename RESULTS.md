@@ -448,3 +448,88 @@ shape problem with a scale knob.
 - Defaults unchanged, so campaign-1/2/3 runs stay comparable.
 - 4 new tests (`influence_terms`, event components, `nnls`,
   `fit_logistic_nn`); **83/83 pass**.
+
+---
+
+# Campaign 5 — goal-direction injection (Track B)
+
+Date: 2026-10-16. Campaign 3's caveat and Track A's negative result both
+point here: the reward and the stance delta were **text-direction-blind**.
+The readout scores persona-fit ("persuasive *for this reader*"), and the
+transition `Δs = p·β·(s_src − s)` pulls a target toward the source's stance
+regardless of what the post argues. So a persuasive-but-off-goal post was
+rewarded identically to an on-goal one — and Track A showed the resulting
+dynamics cannot match the paper's smooth late-phase updates.
+
+## B1. The goal is now a proposition
+
+`code/config.py` / `code/scenario.py` define:
+
+- `goal_proposition` = *"This policy is harmful and should be rejected."*
+- `goal_anti_proposition` = *"This policy is beneficial and should be
+  supported."*
+
+derived from the seed post (`code/simulation.py`), replacing the bare
+placeholder `topic="the policy"`.
+
+## B2. `code/goal_align.py` — measuring `a(m) ∈ [0,1]`
+
+Three interchangeable backends:
+
+| backend | method | directional sanity (anti / neutral / pro) |
+|---|---|---|
+| **semdiff** (default) | ½·(cos(m,G_goal) − cos(m,G_anti) + 1), reuses embeddings | 0.665 / 0.513 / 0.340 |
+| judge | cached LLM goal-axis prompt, −1..+1 | 1.00 / 0.50 / −1.00 (on short posts) |
+| nli | local MNLI entailment | falls back to semdiff if `transformers` absent |
+
+**Caveats (measured).** `semdiff` is deterministic and free but *weakly*
+separates (anti 0.67 vs pro 0.34 — monotone but compressed). The `judge`
+backend separates sharply on unambiguous posts but is **flaky on mixed
+sentences** (a longer pro post with a hedging clause scored 0.95 instead of
+~0.0). Default is `semdiff`.
+
+## B3. Injection into the stance delta
+
+`code/agent.py::update_agent_stance` now accepts `goal_align` and, when
+Track B is on, replaces the source stance with a goal-projected one:
+
+```
+s_eff = s_src·(2a(m) − 1)          # a=1 → s_src, a=0.5 → 0, a=0 → −s_src
+s'    = clip(s + p·β·(s_eff − s))  # an off-goal post moves the target AWAY
+```
+
+Gated by `PERSUASION_GOAL_DELTA=1` / `--goal-delta` (default off, so
+v1/v2/v3 stay comparable); `--align {none,semdiff,nli,judge}` selects the
+backend. The rendered persuader post is scored in `rl_env` (`message_goal_align`),
+logged per decision (`goal_align` on the action record and the diffusion
+event), and surfaced as `train_goal_align` in the trainer.
+
+## B4. Validation — `code/validate_goal.py`
+
+40 episodes × 6 periods, `semdiff`, injection on (626 scored decisions):
+
+| check | result |
+|---|---|
+| directional sanity | **anti 0.665 > neutral 0.513 > pro 0.340** ✓ |
+| corr( a(m), realized −Δs ) | **+0.177** |
+| mean −Δs, on-goal (a≥0.5) | **+0.0373** |
+| mean −Δs, off-goal (a<0.5) | +0.0253 |
+
+On-goal posts are rewarded ≈1.5× more than off-goal ones, and the
+off-goal advantage that existed under the old text-blind transition is
+attenuated. Directional sanity holds; the correlation is modest because
+crowd messages cluster near a≈0.5.
+
+## B5. Status
+
+- [x] Goal is a named proposition in config.
+- [x] `a(m)` backends implemented, cached, offline-safe; logged per decision.
+- [x] Injection behind `--goal-delta` / `PERSUASION_GOAL_DELTA`.
+- [x] Offline validation (directional sanity + `a`↔`−Δs`).
+- [ ] **A/B** (current vs goal-delta), 50-seed paired, 300×32 — deferred to
+  the next full campaign (item 16), which now also benefits from the
+  Track A finding that the transition *form* (not β) was the dynamics
+  bottleneck.
+
+6 new tests (`TestGoalDirection`: transition direction, semdiff formula,
+none-off, env injection+logging); **87/87 pass**.

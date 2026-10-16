@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 from .config import ScenarioConfig
@@ -27,6 +28,19 @@ class LLMScenario:
     output_dir: str = "output"
     rng_seed: int | None = None
 
+    # Track B: goal direction (mirrors ScenarioConfig; see code/goal_align.py)
+    goal_proposition: str = "This policy is harmful and should be rejected."
+    goal_anti_proposition: str = (
+        "This policy is beneficial and should be supported."
+    )
+    goal_align: str = os.environ.get("PERSUASION_GOAL_ALIGN", "none")
+    goal_delta: bool = os.environ.get("PERSUASION_GOAL_DELTA", "0") not in (
+        "", "0", "false", "False"
+    )
+    goal_reward_lambda: float = float(
+        os.environ.get("PERSUASION_GOAL_LAMBDA", "0") or 0
+    )
+
     @classmethod
     def from_config(cls, cfg: ScenarioConfig | None = None) -> "LLMScenario":
         cfg = cfg or ScenarioConfig()
@@ -46,4 +60,9 @@ class LLMScenario:
             use_profile_evidence=cfg.use_profile_evidence,
             output_dir=cfg.output_dir,
             rng_seed=cfg.seed,
+            goal_proposition=cfg.goal_proposition,
+            goal_anti_proposition=cfg.goal_anti_proposition,
+            goal_align=cfg.goal_align,
+            goal_delta=cfg.goal_delta,
+            goal_reward_lambda=cfg.goal_reward_lambda,
         )

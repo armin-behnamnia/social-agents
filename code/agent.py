@@ -121,6 +121,7 @@ class LLMSocialAgent(NetworkAgent):
         # calculate_influence_prob, read by save_diffusion_event).
         self._last_influence_terms: dict = {}
         self._last_persuasiveness: float = 1.0
+        self._last_goal_align: float | None = None
 
     # ==============================================================
     # Message ID
@@ -139,14 +140,25 @@ class LLMSocialAgent(NetworkAgent):
         source_agent,
         source_influence_strength: float,
         target_susceptibility_rate: float,
+        goal_align: float | None = None,
     ) -> tuple[float, float]:
         old_stance = float(self.stance)
+
+        source_stance = float(source_agent.stance)
+        if goal_align is not None:
+            # Track B3(ii): replace the source stance with a goal-projected
+            # one so the *direction* of movement follows the message:
+            #   s_eff = s_src·(2a−1)   (a=1 → s_src, a=0 → −s_src,
+            #                           a=0.5 → 0, i.e. no movement)
+            # An off-goal post therefore cannot pull the target toward the
+            # goal, so it cannot earn `−Δs` reward.
+            source_stance = source_stance * (2.0 * float(goal_align) - 1.0)
 
         new_stance = (
             old_stance
             + source_influence_strength
             * target_susceptibility_rate
-            * (source_agent.stance - old_stance)
+            * (source_stance - old_stance)
         )
 
         new_stance = np.clip(
@@ -306,6 +318,22 @@ class LLMSocialAgent(NetworkAgent):
         target_stance_after = float(self.stance)
 
         if self.scenario.stance_influence_rate > 0:
+            goal_align = None
+            if self.scenario.goal_delta and source_agent.post:
+                goal_align = getattr(
+                    source_agent, "message_goal_align", None
+                )
+                if goal_align is None:
+                    from .goal_align import get_align_fn
+
+                    fn = get_align_fn(
+                        self.scenario.goal_align,
+                        self.scenario.goal_proposition,
+                        self.scenario.goal_anti_proposition,
+                    )
+                    goal_align = float(fn(source_agent.post)) if fn else 1.0
+                    source_agent.message_goal_align = goal_align
+            self._last_goal_align = goal_align
             (
                 target_stance_before,
                 target_stance_after,
@@ -313,6 +341,7 @@ class LLMSocialAgent(NetworkAgent):
                 source_agent=source_agent,
                 source_influence_strength=influence_prob,
                 target_susceptibility_rate=self.scenario.stance_influence_rate,
+                goal_align=goal_align,
             )
 
         stance_delta = target_stance_after - target_stance_before
@@ -605,6 +634,8 @@ class LLMSocialAgent(NetworkAgent):
             event["persuasiveness"] = getattr(
                 self, "_last_persuasiveness", 1.0
             )
+        if self._last_goal_align is not None:
+            event["goal_align"] = float(self._last_goal_align)
         diffusion_events.append(event)
 
     def save_message_event(

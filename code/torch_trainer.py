@@ -345,6 +345,7 @@ def collect_episode(
                             None if score is None else float(score)
                         ),
                         "judge_src": rec.get("judge_src"),
+                        "goal_align": rec.get("goal_align"),
                     }
                 )
         done = terminated or truncated
@@ -429,6 +430,9 @@ class PPOTrainer:
         # identity-vs-content lookup counters for the BT reward model:
         # any "text" means the id index missed and we silently fell back.
         self._judge_src_counts: dict[str, int] = {"id": 0, "text": 0, "none": 0}
+        # running mean of the message goal-alignment a(m) (Track B)
+        self._goal_align_sum = 0.0
+        self._goal_align_count = 0
 
     # ------------------------------------------------------------------
 
@@ -490,6 +494,10 @@ class PPOTrainer:
             src = s.get("judge_src")
             if src in self._judge_src_counts:
                 self._judge_src_counts[src] += 1
+            ga = s.get("goal_align")
+            if ga is not None:
+                self._goal_align_sum += float(ga)
+                self._goal_align_count += 1
 
     def _strategy_entropy(self) -> float:
         """Entropy (nats) of the empirical strategy distribution."""
@@ -852,6 +860,10 @@ class PPOTrainer:
                     self._judge_scores[n_judge_before:]
                 ),
                 "train_judge_src": dict(self._judge_src_counts),
+                "train_goal_align": (
+                    self._goal_align_sum / self._goal_align_count
+                    if self._goal_align_count else None
+                ),
                 "elapsed_s": prev_elapsed + (time.time() - t0),
             }
             history.append(rec)
