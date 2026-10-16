@@ -300,7 +300,7 @@ barely rewards **matching the target** — target × action conditioning of
 the *readout* remains weak. Campaign 3 tests whether the reward-scale
 signal (gravity ≈ 18× SE) is enough for PPO to climb.
 
-## 3. Training run — `output/ppo_v2_bt/live_run2` (in progress)
+## 3. Training run — `output/ppo_v2_bt/live_run2` (COMPLETE)
 
 v2 space + BT judge, 300 iters × 32 eps = **9,600 episodes**, 160
 rollout workers, paired eval every 20.
@@ -316,7 +316,45 @@ config (9,600) fits in ~4–5 h at >300 episodes/iteration-equivalent.
 Cache-warming via `delta` quantisation is the obvious next speedup if a
 much larger budget is wanted.
 
-Verdict (learned vs random vs heuristic under BT, paired 50 seeds) to be
-recorded here when the run completes. The report mirror of this section
-lives in `report/index.html` → *Appendix: a strategy definition that can
-carry learnable variation*.
+### Final verdict
+
+Run completed **300/300** iterations (launched 2026-10-14, resumed 2026-10-15
+from iter 20, finished 2026-10-16 ≈01:09; ~17 h wall at ~199 s/iter).
+`results.json`:
+
+| | reward |
+|---|---|
+| learned policy (greedy) | **13.014** |
+| random baseline | 8.604 |
+| "heuristic" baseline | 3.180 |
+| improvement over random | **+4.410** |
+| improvement over "heuristic" | +9.833 |
+
+Paired eval @ 300 (50 shared seeds): greedy **13.377** vs random **8.929**
+(**+4.448, t=14.35**) vs "heuristic" 2.930 (+10.447).
+
+Across all 15 paired evals (every 20 iters) the learned policy stayed above
+random from iteration 20 onward, flat and stable late: 13.31 → 13.34 →
+13.34 → 13.46 → 13.43 → **13.47** (peak, iter 260) → 13.42 → 13.38.
+
+- **vs random:** +4.45, t ≈ 14–15 → firmly beats random.
+- **vs best constant (12.80):** greedy 13.38 → **+0.58**, so it does beat the
+  best single arm — but the margin is modest and eval-seed dependent.
+- The "heuristic" baseline (2.93) is **not a tuned constant** — it is v2 arm
+  #36 (`freedom/statistic/taxpayer`, a bottom arm). The meaningful bars are
+  random and best-constant.
+
+Learned behaviour: converges on `evidence=anecdote` + `address=worker`,
+cycling the angle between `effectiveness` (#68) and `fairness` (#32) — the same
+region the independent landscape probe ranked best. Final strategy entropy
+**0.39** (a couple of arms, not one).
+
+**Caveat.** Judge saturation at the end is `~0.995` (90–98% in the top
+bucket): the policy rides the readout ceiling. The +4.45 is real against
+*this* readout, but the readout scores persona-fit/persuasiveness, not the
+message's direction toward the goal. That is the next lever — readout
+hardening first, then goal-direction injection (see `IMPLEMENTATION_PLAN.md`,
+Tracks C and B).
+
+The report mirror of this section lives in `report/index.html` → *campaign 3
+verdict* (under the Bradley–Terry appendix).

@@ -344,6 +344,7 @@ def collect_episode(
                         "persuasiveness": (
                             None if score is None else float(score)
                         ),
+                        "judge_src": rec.get("judge_src"),
                     }
                 )
         done = terminated or truncated
@@ -425,6 +426,9 @@ class PPOTrainer:
         self._strategy_value_sum = np.zeros(N_STRATEGIES, dtype=np.float64)
         self._strategy_value_count = np.zeros(N_STRATEGIES, dtype=np.int64)
         self._judge_scores: list[float] = []
+        # identity-vs-content lookup counters for the BT reward model:
+        # any "text" means the id index missed and we silently fell back.
+        self._judge_src_counts: dict[str, int] = {"id": 0, "text": 0, "none": 0}
 
     # ------------------------------------------------------------------
 
@@ -483,6 +487,9 @@ class PPOTrainer:
             score = s.get("persuasiveness")
             if score is not None:
                 self._judge_scores.append(float(score))
+            src = s.get("judge_src")
+            if src in self._judge_src_counts:
+                self._judge_src_counts[src] += 1
 
     def _strategy_entropy(self) -> float:
         """Entropy (nats) of the empirical strategy distribution."""
@@ -844,6 +851,7 @@ class PPOTrainer:
                 "train_judge": self._summarize(
                     self._judge_scores[n_judge_before:]
                 ),
+                "train_judge_src": dict(self._judge_src_counts),
                 "elapsed_s": prev_elapsed + (time.time() - t0),
             }
             history.append(rec)
@@ -851,11 +859,23 @@ class PPOTrainer:
             if iteration % cfg.log_every == 0:
                 logger.info(
                     "iter %d/%d reward=%.4f final_stance=%.3f adopted=%.1f "
-                    "pi_loss=%.4f v_loss=%.4f ent=%.3f (entc=%.4f) (%.1fs)",
+                    "pi_loss=%.4f v_loss=%.4f ent=%.3f (entc=%.4f) "
+                    "judge[id=%d text=%d none=%d] (%.1fs)",
                     iteration, cfg.iterations, mean_reward, mean_stance,
                     rec["mean_adopted"], metrics["pi_loss"], metrics["v_loss"],
-                    metrics["entropy"], entropy_coef, rec["elapsed_s"],
+                    metrics["entropy"], entropy_coef,
+                    self._judge_src_counts["id"],
+                    self._judge_src_counts["text"],
+                    self._judge_src_counts["none"],
+                    rec["elapsed_s"],
                 )
+                if self._judge_src_counts["text"]:
+                    logger.warning(
+                        "judge identity-index MISS: %d lookups fell back to "
+                        "the content path by iter %d — the BT table is "
+                        "incomplete for this (strategy, profile) space",
+                        self._judge_src_counts["text"], iteration,
+                    )
 
             if iteration % cfg.eval_every == 0:
                 score = self.evaluate(episodes=cfg.eval_episodes)

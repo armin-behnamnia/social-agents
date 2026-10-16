@@ -125,13 +125,31 @@ def expected_win_rate(
 
 @dataclass
 class BTJudge:
-    """Callable BT reward model: (message, profile) -> score in [0, 1]."""
+    """Callable BT reward model: (message, profile) -> score in [0, 1].
+
+    Two access paths:
+
+    * ``judge(message, profile)`` — content lookup, keyed on the rendered
+      text. Fast, but silently misses if the render drifts (different
+      model, temperature, prompt, topic, or seed).
+    * ``judge.lookup_by_id(strategy_index, profile_id)`` — **identity**
+      lookup, keyed on the (strategy, profile) indices rather than text.
+      This is the drift-proof path used by the env at training time; it
+      cannot miss because of a rendering change, only because the table
+      itself is incomplete (which the startup coverage check catches).
+    """
 
     table: dict[tuple[str, str], float] = field(default_factory=dict)
     stats: dict = field(default_factory=dict)
+    table_id: dict[tuple[int, int], float] = field(default_factory=dict)
+    profile_ids: list[int] = field(default_factory=list)
 
     def __call__(self, message: str, profile: str) -> float | None:
         return self.table.get((message, profile))
+
+    def lookup_by_id(self, strategy_index: int, profile_id: int) -> float | None:
+        """Identity lookup: reward for (strategy, profile) by index."""
+        return self.table_id.get((int(strategy_index), int(profile_id)))
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
@@ -142,6 +160,11 @@ class BTJudge:
                 {"message": m, "profile": p, "score": s}
                 for (m, p), s in self.table.items()
             ],
+            "by_id": [
+                {"strategy_index": si, "profile_id": pi, "score": s}
+                for (si, pi), s in self.table_id.items()
+            ],
+            "profile_ids": self.profile_ids,
         }
         path.write_text(json.dumps(payload))
 
@@ -149,7 +172,38 @@ class BTJudge:
     def load(cls, path: str | Path) -> "BTJudge":
         d = json.loads(Path(path).read_text())
         table = {(e["message"], e["profile"]): e["score"] for e in d["entries"]}
-        return cls(table=table, stats=d.get("stats", {}))
+        table_id = {
+            (int(e["strategy_index"]), int(e["profile_id"])): e["score"]
+            for e in d.get("by_id", [])
+        }
+        return cls(
+            table=table,
+            stats=d.get("stats", {}),
+            table_id=table_id,
+            profile_ids=list(d.get("profile_ids", [])),
+        )
+
+    def attach_ids(self, strategies, profiles: list[str], *,
+                   topic: str = "the policy") -> int:
+        """Derive the identity index from the content table.
+
+        One-time migration for tables written before ``table_id`` existed:
+        re-render each (strategy, profile) cell (cached) and look up its
+        score in ``self.table``. Returns the number of cells indexed.
+        """
+        by_id: dict[tuple[int, int], float] = {}
+        for pi in range(len(profiles)):
+            for si in range(len(strategies)):
+                msg = LLM_module.render_strategy_message(
+                    strategies[si], target_profile=profiles[pi],
+                    topic=topic, stance_direction="opposing",
+                )
+                score = self.table.get((msg, profiles[pi]))
+                if score is not None:
+                    by_id[(si, pi)] = score
+        self.table_id = by_id
+        self.profile_ids = list(range(len(profiles)))
+        return len(by_id)
 
 
 def build_table(
@@ -235,6 +289,7 @@ def build_table(
 
     items = list(range(n_strat))
     table: dict[tuple[str, str], float] = {}
+    table_id: dict[tuple[int, int], float] = {}
     win_rates_all = []
     per_profile = {}
     for pi in range(len(profiles)):
@@ -245,6 +300,7 @@ def build_table(
         for si in items:
             shifted = min(max(wr[si] - wr_mean + abs_mean, 0.0), 1.0)
             table[(msg[(si, pi)], profiles[pi])] = shifted
+            table_id[(si, pi)] = shifted
             win_rates_all.append(wr[si])
         per_profile[pi] = {
             "n_edges": len(edges),
@@ -266,9 +322,14 @@ def build_table(
         "score_mean": round(sum(scores) / len(scores), 4),
         "score_sd": round(st.pstdev(scores), 4),
         "n_unique_scores": len({round(s, 3) for s in scores}),
+        "n_indexed": len(table_id),
     }
     if progress:
         print(f"[+] BT build done: SD {stats['score_sd']} "
               f"(abs judge mean {stats['abs_mean']}, "
-              f"{stats['n_unique_scores']} distinct scores)", flush=True)
-    return BTJudge(table=table, stats=stats)
+              f"{stats['n_unique_scores']} distinct scores, "
+              f"{stats['n_indexed']} identity cells indexed)", flush=True)
+    return BTJudge(
+        table=table, stats=stats, table_id=table_id,
+        profile_ids=list(range(len(profiles))),
+    )

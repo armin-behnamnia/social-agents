@@ -122,10 +122,16 @@ class ElitePersuaderEnv:
         # strategy-dependent learning signal.
         self.persuader_persuasiveness = persuader_persuasiveness
         # Optional reward model (e.g. a Bradley-Terry pairwise judge).
-        # Called as judge_fn(message, profile); a None return falls back
-        # to the absolute LLM judge.
+        # Preferred call is judge_fn.lookup_by_id(strategy_index, profile_id)
+        # — a drift-proof identity lookup; a None return falls back to the
+        # content call judge_fn(message, profile), then to the absolute LLM
+        # judge. Hit/fallback counts surface through ``judge_src`` on the
+        # action records so a silent fallback can never go unnoticed.
         self._judge_fn = judge_fn
         self._persuasiveness_cache: dict[int, float] = {}
+        self._id_cache: dict[tuple[int, int], float] = {}
+        self._judge_hits = 0
+        self._judge_fallbacks = 0
 
         self._learned_targets = target_selection == "learned"
         self._random_neighbor = target_selection == "random_neighbor"
@@ -445,15 +451,45 @@ class ElitePersuaderEnv:
             chosen = targets[0] if targets else None
         return chosen, int(strategy_idx)
 
-    def _judge_score(self, message: str, target) -> float:
-        """LLM persuasiveness score, cached by (message, profile).
+    def _judge_score(self, message: str, target, strategy_idx: int | None = None) -> float:
+        """Persuasiveness score for a delivered message.
 
-        Keyed on content, not object identity, so the in-memory cache
-        (and the disk cache inside call_llm) survives episode resets
-        and is shared across rollout threads.
+        Preference order: (1) identity lookup keyed on
+        ``(strategy_idx, target.profile_id)`` — drift-proof and the
+        intended path; (2) content lookup keyed on
+        ``(message, target.profile)`` — the legacy path; (3) the absolute
+        LLM judge. Returns ``1.0`` when persuasiveness is disabled.
+
+        Returns the score only; the caller reads ``judge_src`` from the
+        action record to see which path fired.
         """
         if not self.persuader_persuasiveness or target is None:
             return 1.0
+
+        pid = getattr(target, "profile_id", None)
+        # 1. identity lookup (drift-proof) -------------------------------
+        if (
+            strategy_idx is not None
+            and pid is not None
+            and self._judge_fn is not None
+            and hasattr(self._judge_fn, "lookup_by_id")
+        ):
+            ikey = (int(strategy_idx), int(pid))
+            if ikey in self._id_cache:
+                self._judge_hits += 1
+                return self._id_cache[ikey]
+            try:
+                score = self._judge_fn.lookup_by_id(*ikey)
+            except Exception:  # noqa: BLE001 - judge is optional
+                score = None
+            if score is not None:
+                self._id_cache[ikey] = float(score)
+                self._judge_hits += 1
+                return float(score)
+            # identity miss -> must fall through, and be counted
+            self._judge_fallbacks += 1
+
+        # 2. content lookup (legacy) -------------------------------------
         key = (message, target.profile)
         score = self._persuasiveness_cache.get(key)
         if score is None:
@@ -515,7 +551,15 @@ class ElitePersuaderEnv:
             )
             persuader.post = message
             persuader.post_embedding = persuader._get_embedding(message)
-            score = self._judge_score(message, chosen)
+            hits_before = self._judge_hits
+            fallbacks_before = self._judge_fallbacks
+            score = self._judge_score(message, chosen, strategy_idx)
+            if self._judge_hits > hits_before:
+                judge_src = "id"
+            elif self._judge_fallbacks > fallbacks_before:
+                judge_src = "text"
+            else:
+                judge_src = "none"
             persuader.message_persuasiveness = score
             action_records.append(
                 {
@@ -525,6 +569,7 @@ class ElitePersuaderEnv:
                     "strategy": spec,
                     "message": message,
                     "persuasiveness": score,
+                    "judge_src": judge_src,
                 }
             )
 

@@ -68,6 +68,11 @@ class LLMSocialAgent(NetworkAgent):
 
         # Static agent context
         self.profile: str = ""
+        # Index of this agent's profile in the canonical synthetic-profile
+        # list (set at population init). A stable identity key for the
+        # reward model, independent of the profile *text* — so a judge
+        # lookup can never silently miss because of rendering drift.
+        self.profile_id: int | None = None
 
         # Latent internal state, continuous stance in [-1, 1]
         self.stance: float = 0.0

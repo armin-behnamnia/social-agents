@@ -182,55 +182,65 @@ training silently back to the saturated absolute judge — the exact failure the
 BT repair removed. Fixing the join is cheap and protects every later result.
 
 ### C1. Key by identity, not text
-- [ ] Assign a stable `profile_id` per agent at sim init (index into
+- [x] Assign a stable `profile_id` per agent at sim init (index into
   `generate_synthetic_profiles(50, seed=1234)`); store it on the agent.
-- [ ] In `build_table` (`code/bt_judge.py:155`), additionally index the result
+- [x] In `build_table` (`code/bt_judge.py:155`), additionally index the result
   by `(strategy_index, profile_id)` — keep the `(message, profile)` table for
   audit/report.
-- [ ] Extend `BTJudge` with an identity lookup
+- [x] Extend `BTJudge` with an identity lookup
   `lookup_by_id(strategy_idx, profile_id) -> float | None`.
-- [ ] Change the call site (`code/rl_env.py:518`) to pass `strategy_idx` and the
+- [x] Change the call site (`code/rl_env.py:518`) to pass `strategy_idx` and the
   target's `profile_id`; make `_judge_score` (`code/rl_env.py:448`) do an O(1)
   identity hit and not depend on re-rendered text.
 
 ### C2. Assert coverage at startup
-- [ ] On load (`code/train_persuader.py:452`), assert
+- [x] On load (`code/train_persuader.py:452`), assert
   `n_cells == N_STRATEGIES × n_profiles` for the configured space/seed.
-- [ ] **Fail loudly** (raise, not warn) on any missing cell or a table built
+- [x] **Fail loudly** (raise, not warn) on any missing cell or a table built
   for a different space/seed.
+- [x] Migration: `BTJudge.attach_ids(strategies, profiles, topic)` derives the
+  identity index for tables written before it existed (cached renders) and
+  persists it — the existing `bt_judge.json` needed no full rebuild.
 
 ### C3. Make fallback loud and measured
-- [ ] Count table hits vs absolute-judge fallbacks per iteration; add to the
-  `train_judge` block in `code/torch_trainer.py` (the log already carries
-  `n/mean/std/min/max/saturated_frac`).
-- [ ] Emit a warning the first time a fallback occurs; surface the fallback
-  rate in `results.json` and the report.
+- [x] Count table hits vs fallbacks per iteration; added `train_judge_src`
+  (`{id, text, none}`) to every history record and `judge[id= text= none=]`
+  to the periodic log line in `code/torch_trainer.py`.
+- [x] Emit a warning the first time a fallback occurs (`text > 0`); counts live
+  in `training_log.json`.
 
 ### C4. Tests
-- [ ] `code/tests/test_rl.py`: normal path is a pure identity lookup.
-- [ ] A drifting/near-miss key either raises (C2) or falls back **visibly**
-  (C3) — never silently.
+- [x] `code/tests/test_rl.py`: normal path is a pure identity lookup
+  (`test_env_uses_identity_path` — asserts `judge_src == "id"`, fallback 0).
+- [x] A drifting/near-miss key falls back **visibly**
+  (`test_env_counts_fallback_on_identity_miss` — asserts `judge_src == "text"`
+  and the counter fires), never silently; persistence and migration covered.
 
 ### C5. Acceptance criteria
-- Changing the model, topic, prompt template, or profile seed **cannot**
-  silently route training to the absolute judge.
-- Fallback rate is 0 on the happy path and is logged/visible otherwise.
+- [x] Changing the model, topic, prompt template, or profile seed **cannot**
+  silently route training to the absolute judge — a missing identity cell
+  raises at startup, and is otherwise counted + logged at runtime.
+- [x] Fallback rate is 0 on the happy path and is logged/visible otherwise.
+
+**Status: DONE (2026-10-16).** Migration indexed 3600/3600 cells; an
+end-to-end smoke run reported `id=15, text=0, none=0` (zero fallbacks), and
+`pytest code/tests/` passes 79/79.
 
 ---
 
 ## To-do list (ordered)
 
 **Now — Track C (priority 1, before any further trusted training)**
-1. [ ] `profile_id` per agent at sim init (`code/simulation.py`, `code/agent.py`).
-2. [ ] Identity index + `lookup_by_id` in `code/bt_judge.py` (`build_table`,
+1. [x] `profile_id` per agent at sim init (`code/simulation.py`, `code/agent.py`).
+2. [x] Identity index + `lookup_by_id` in `code/bt_judge.py` (`build_table`,
    `BTJudge`).
-3. [ ] Rewire `_judge_score` / call site to identity lookup
-   (`code/rl_env.py:448`, `:518`).
-4. [ ] Startup coverage assertion, fail-loud (`code/train_persuader.py:452`).
-5. [ ] Hit/fallback counters in `train_judge` (`code/torch_trainer.py`).
-6. [ ] Tests in `code/tests/test_rl.py` (normal + drift).
-7. [ ] Rebuild the table with the identity index; verify `live_run2`-style
-   run hits 100% by identity, fallback 0.
+3. [x] Rewire `_judge_score` / call site to identity lookup
+   (`code/rl_env.py`).
+4. [x] Startup coverage assertion, fail-loud (`code/train_persuader.py`).
+5. [x] Hit/fallback counters in `train_judge` (`code/torch_trainer.py`).
+6. [x] Tests in `code/tests/test_rl.py` (normal + drift).
+7. [x] Index the table with the identity index; verified a live smoke run
+   hits 100% by identity (`id=15, text=0, none=0`).
 
 **Next — Track A (calibration, no RL-path changes)**
 8. [ ] `code/fit_alphas.py`: logistic fit of the four α's from logged events.

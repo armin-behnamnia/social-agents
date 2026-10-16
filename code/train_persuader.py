@@ -449,19 +449,47 @@ def main() -> int:
         table_path = Path(args.bt_table) if args.bt_table else (
             Path(cfg.output_dir) / "bt_judge.json"
         )
+        # Profile order must match ElitePersuaderEnv.profile_seed (default
+        # 1234): the identity index keys on the profile *index*, so a
+        # different ordering would silently pair a target with the wrong
+        # reader. Keep this seed in lockstep with env default.
+        profiles = generate_synthetic_profiles(cfg.agent_num, seed=1234)
+        strategies = all_strategies()
         if table_path.is_file():
             judge_fn = BTJudge.load(table_path)
             print(f"[+] loaded BT judge ({len(judge_fn.table)} entries, "
                   f"SD {judge_fn.stats.get('score_sd')}) from {table_path}")
         else:
-            profiles = generate_synthetic_profiles(cfg.agent_num, seed=1234)
             judge_fn = build_table(
-                all_strategies(), profiles, topic=cfg.topic,
+                strategies, profiles, topic=cfg.topic,
                 n_opponents=args.bt_opponents,
                 workers=cfg.rollout_workers,
             )
             judge_fn.save(table_path)
             print(f"[+] built BT judge ({judge_fn.stats}) -> {table_path}")
+
+        # Track C: enforce the identity index. A table written before the
+        # index existed is migrated in place (cached renders); then full
+        # coverage is asserted so a partial table fails LOUD instead of
+        # silently falling back to the saturated content/absolute judge
+        # at training time.
+        expected = len(strategies) * len(profiles)
+        if not judge_fn.table_id:
+            n_idx = judge_fn.attach_ids(strategies, profiles, topic=cfg.topic)
+            print(f"[+] BT judge: derived identity index "
+                  f"{n_idx}/{expected} cells (cached renders)")
+            judge_fn.save(table_path)
+        if len(judge_fn.table_id) < expected:
+            missing = expected - len(judge_fn.table_id)
+            raise SystemExit(
+                f"FATAL: BT judge identity index incomplete — "
+                f"{len(judge_fn.table_id)}/{expected} cells "
+                f"({missing} missing). Rebuild the table (delete "
+                f"{table_path} and re-run) so training cannot silently "
+                f"fall back to the saturated content/absolute judge."
+            )
+        print(f"[+] BT judge identity index: "
+              f"{len(judge_fn.table_id)}/{expected} cells (full coverage)")
 
     # cache warmup: pre-render the full (strategy x profile) matrix ----
     if args.warmup_cache and args.mode == "live":

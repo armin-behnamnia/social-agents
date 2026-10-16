@@ -139,3 +139,95 @@ class TestRenderStrategyOffline:
             index_to_strategy(7), target_profile="a teacher"
         )
         assert "logos" in msg  # mock echoes the strategy
+
+
+class TestBTIdentityLookup:
+    """Track C: the reward model is reached by (strategy, profile) index."""
+
+    def test_save_load_roundtrip_preserves_ids(self, tmp_path):
+        from code.bt_judge import BTJudge
+
+        j = BTJudge(
+            table={("m", "p"): 0.6}, stats={"x": 1},
+            table_id={(2, 3): 0.6}, profile_ids=[3],
+        )
+        path = tmp_path / "j.json"
+        j.save(path)
+        k = BTJudge.load(path)
+        assert k("m", "p") == pytest.approx(0.6)
+        assert k.lookup_by_id(2, 3) == pytest.approx(0.6)
+        assert k.lookup_by_id(9, 9) is None
+        assert k.profile_ids == [3]
+
+    def test_env_uses_identity_path(self):
+        from code.bt_judge import BTJudge
+
+        n = 10
+        judge = BTJudge(
+            stats={},
+            table_id={(si, pi): 0.777
+                      for pi in range(n) for si in range(N_STRATEGIES)},
+        )
+        env = ElitePersuaderEnv(
+            scenario=LLMScenario(agent_num=n, rng_seed=7), n_periods=3,
+            obs_mode="summary", judge_fn=judge,
+        )
+        env.reset(seed=3)
+        _, _, _, _, info = env.step(0)
+        rec = info["persuader_actions"][0]
+        assert rec["judge_src"] == "id"
+        assert rec["persuasiveness"] == pytest.approx(0.777)
+        assert env._judge_hits >= 1
+        assert env._judge_fallbacks == 0
+
+    def test_env_counts_fallback_on_identity_miss(self):
+        from code.bt_judge import BTJudge
+
+        # identity index AND content table empty -> must fall through to
+        # the absolute (offline-mocked) judge, and must be counted.
+        judge = BTJudge(table={}, stats={}, table_id={}, profile_ids=[])
+        env = ElitePersuaderEnv(
+            scenario=LLMScenario(agent_num=10, rng_seed=8), n_periods=3,
+            obs_mode="summary", judge_fn=judge,
+        )
+        env.reset(seed=3)
+        _, _, _, _, info = env.step(0)
+        rec = info["persuader_actions"][0]
+        assert rec["judge_src"] == "text"
+        assert env._judge_fallbacks >= 1
+        assert env._judge_hits == 0
+
+    def test_attach_ids_full_coverage(self):
+        from code import LLM_module
+        from code.bt_judge import BTJudge
+
+        strats = all_strategies()[:3]
+        profiles = ["a retired teacher", "a night-shift nurse"]
+        table = {}
+        for prof in profiles:
+            for si, spec in enumerate(strats):
+                msg = LLM_module.render_strategy_message(
+                    spec, target_profile=prof, topic="the policy",
+                    stance_direction="opposing",
+                )
+                table[(msg, prof)] = 0.5 + 0.01 * si
+        j = BTJudge(table=table)
+        n = j.attach_ids(strats, profiles, topic="the policy")
+        assert n == len(strats) * len(profiles)
+        assert j.lookup_by_id(0, 0) == pytest.approx(0.5)
+        assert j.lookup_by_id(2, 1) == pytest.approx(0.52)
+        assert j.profile_ids == [0, 1]
+
+    def test_profile_id_assigned_at_init(self):
+        env = ElitePersuaderEnv(
+            scenario=LLMScenario(agent_num=10, rng_seed=9), n_periods=2,
+            obs_mode="summary",
+        )
+        env.reset(seed=1)
+        ids = [a.profile_id for a in env._sim.agents]
+        assert ids == list(range(10))
+        # profile order is stable across resets (same canonical list)
+        profiles = [a.profile for a in env._sim.agents]
+        env.reset(seed=99)
+        assert [a.profile_id for a in env._sim.agents] == list(range(10))
+        assert [a.profile for a in env._sim.agents] == profiles

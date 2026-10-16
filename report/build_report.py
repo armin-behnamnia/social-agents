@@ -7,6 +7,7 @@ from the run artifacts) and emits report/index.html.
 from __future__ import annotations
 
 import json
+import re
 import statistics
 from pathlib import Path
 
@@ -31,6 +32,45 @@ BTLAND = (json.loads((HERE / "strategy_value_bt.json").read_text())
           if (HERE / "strategy_value_bt.json").exists() else None)
 _BT_TABLE = HERE.parent / "output/ppo_v2_bt/bt_judge.json"
 BT = (json.loads(_BT_TABLE.read_text()) if _BT_TABLE.exists() else None)
+_C3_RESULTS = HERE.parent / "output/ppo_v2_bt/live_run2/results.json"
+_C3_LOG = HERE.parent / "output/ppo_v2_bt/train2.log"
+
+
+def campaign3():
+    """Final verdict for the v2-space + Bradley-Terry training run."""
+    if not _C3_RESULTS.exists():
+        return None
+    res = json.loads(_C3_RESULTS.read_text())
+    out = {
+        "greedy": res.get("final_greedy_reward"),
+        "random": res.get("random_baseline_reward"),
+        "heuristic": res.get("heuristic_baseline_reward"),
+        "d_random": res.get("improvement_over_random"),
+        "d_heur": res.get("improvement_over_heuristic"),
+        "best_const": round(BTLAND["stats"]["best"], 4) if BTLAND else None,
+        "best_spec": BTLAND["stats"]["best_spec"] if BTLAND else None,
+    }
+    evals = []
+    if _C3_LOG.exists():
+        pat = re.compile(
+            r"paired eval @ (\d+): greedy ([\d.]+) \| random ([\d.]+) "
+            r"\(d\+([\d.]+) t=([\d.]+)\)"
+        )
+        for line in _C3_LOG.read_text().splitlines():
+            m = pat.search(line)
+            if m:
+                evals.append({
+                    "iter": int(m.group(1)), "greedy": float(m.group(2)),
+                    "random": float(m.group(3)),
+                    "d": float(m.group(4)), "t": float(m.group(5)),
+                })
+    out["evals"] = evals
+    if evals:
+        out["paired_final"] = evals[-1]
+        out["paired_iters"] = [e["iter"] for e in evals]
+        out["paired_greedy"] = [e["greedy"] for e in evals]
+        out["paired_d"] = [e["d"] for e in evals]
+    return out
 
 
 def bt_readout():
@@ -369,6 +409,7 @@ pay = {
     "v2_rows": v2_rows(),
     "bt": bt_readout(),
     "bt_points": bt_land_points(),
+    "c3": campaign3(),
 }
 
 HTML = r"""<!DOCTYPE html>
@@ -835,6 +876,29 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
   <p id="btVerdict">—</p>
 </div>
 
+<h3>campaign 3 verdict: the trained policy under the Bradley–Terry readout</h3>
+<p style="max-width:820px;color:var(--ink-light)">With the v2 action space and the pairwise readout in place, the full 300-iteration PPO run (<span class="mono">output/ppo_v2_bt/live_run2</span>, 5 persuaders, 50 agents, 10 periods) was trained end-to-end. The formal comparison is again a paired evaluation over 50 shared seeds, reported every 20 iterations.</p>
+<div class="table-wrapper">
+<table>
+  <thead><tr><th class="left">Comparison</th><th>Reward</th><th>Δ</th><th>t</th><th class="left">Verdict</th></tr></thead>
+  <tbody id="c3Table"></tbody>
+</table>
+</div>
+<div class="chart-container reveal">
+  <canvas id="c3Chart" height="235"></canvas>
+  <div class="caption">Paired eval (50 shared seeds) every 20 iterations — learned greedy vs the fixed random baseline. The learned policy is stable and above random from iteration 20 onward.</div>
+</div>
+<div class="aside-container">
+  <div class="aside">
+    <div class="sidebar-title">what the policy learned</div>
+    <p>It converges on <span class="mono">evidence=anecdote</span> and <span class="mono">address=worker</span>, cycling the angle between <span class="mono">effectiveness</span> (#68) and <span class="mono">fairness</span> (#32) — the same top region the independent landscape probe ranked. Final strategy entropy <span class="mono">0.39</span>: a handful of arms, not one.</p>
+  </div>
+  <div class="aside">
+    <div class="sidebar-title">the caveat that frames the next step</div>
+    <p>The judge saturates near its ceiling (<span class="mono">~0.99</span>, 90–98% in the top bucket). The gain is real <em>against this readout</em>, but the readout scores persona-fit, not the message's direction toward the goal — so the next lever is measuring goal direction, not further tuning the optimizer.</p>
+  </div>
+</div>
+
 <div class="flyout">
   <div class="flyout-title">validation gate (run before committing)</div>
   <p>Any candidate strategy space must clear all three, measured exactly as here: realisability <span class="mono">NN ≥ 0.60</span>; readability <span class="mono">judge SD ≥ 0.15</span> and <span class="mono">modal &lt; 40%</span>; and a target×action oracle gain that exceeds the per-episode reward noise (<span class="mono">SE ≈ 0.53</span>). A space that fails the third is unlearnable no matter how diverse its posts.</p>
@@ -1201,6 +1265,37 @@ if(D.land && D.land.mean){
       scales:{x:{title:{display:true,text:'mean judge persuasiveness'},grid:{color:'#eee'}},
               y:{title:{display:true,text:'mean episode reward'},grid:{color:'#eee'}}},
       plugins:{legend:{position:'top',align:'end'}}}
+  });
+}
+
+// --- campaign 3: BT readout verdict ---
+if(D.c3){
+  const c=D.c3, st=document.getElementById('c3Table');
+  const pf=c.paired_final;
+  const rows=[
+    {n:'learned (greedy) vs random', v:pf.greedy, d:pf.d, t:pf.t, verdict:'win'},
+    {n:'best single constant', v:c.best_const, d:c.best_const-pf.random, t:null, verdict:'reference'},
+    {n:'learned (greedy) vs best constant', v:pf.greedy, d:pf.greedy-c.best_const, t:null, verdict:'narrow win'},
+    {n:'"heuristic" baseline (arm #36)', v:c.heuristic, d:c.heuristic-pf.random, t:null, verdict:'bottom arm'},
+  ];
+  rows.forEach(r=>{
+    const cls=r.d>0?'pos':(r.d<0?'neg':'');
+    st.insertAdjacentHTML('beforeend',
+      `<tr><td class="left">${r.n}</td><td>${r.v.toFixed(3)}</td>`+
+      `<td class="${cls}">${r.d>0?'+':''}${r.d.toFixed(3)}</td>`+
+      `<td>${r.t==null?'–':'t='+r.t.toFixed(2)}</td><td class="left">${r.verdict}</td></tr>`);
+  });
+  const v=document.getElementById('c3Verdict');
+  if(v) v.innerHTML=`Under the Bradley–Terry readout the trained policy scores <span class="mono">${pf.greedy.toFixed(3)}</span> against random's <span class="mono">${pf.random.toFixed(3)}</span> (<span class="pos mono">+${pf.d.toFixed(3)}</span>, <span class="mono">t=${pf.t.toFixed(2)}</span>, 50 paired seeds) and edges the best single constant (<span class="mono">${c.best_const.toFixed(3)}</span>, <span class="mono">${c.best_spec}</span>) by <span class="mono">+${(pf.greedy-c.best_const).toFixed(3)}</span> — firm, but modest.`;
+  new Chart(document.getElementById('c3Chart'),{
+    type:'line',
+    data:{labels:c.paired_iters,datasets:[
+      {label:'learned (greedy)',data:c.paired_greedy,borderColor:'#2a7a5a',backgroundColor:'rgba(42,122,90,0.10)',fill:true,tension:0.25,pointRadius:2.6},
+      {label:'random baseline',data:c.paired_iters.map(()=>pf.random),borderColor:'#a02a2a',borderDash:[5,4],pointRadius:0,borderWidth:1.4}
+    ]},
+    options:{responsive:true,scales:{x:{title:{display:true,text:'PPO iteration'},grid:{color:'#eee'}},
+            y:{title:{display:true,text:'paired reward (50 seeds)'},grid:{color:'#eee'}}},
+            plugins:{legend:{position:'top',align:'end'}}}
   });
 }
 

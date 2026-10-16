@@ -67,8 +67,9 @@ class Simulation:
                 raise ValueError(
                     f"need {n} profiles, got {len(profiles)}"
                 )
-            for agent, profile in zip(self.agents, profiles):
+            for i, (agent, profile) in enumerate(zip(self.agents, profiles)):
                 agent.profile = profile
+                agent.profile_id = i
                 agent.embedding = agent._get_embedding(profile)
                 agent.profile_embedding = agent.embedding
 
