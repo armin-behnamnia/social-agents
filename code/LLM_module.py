@@ -171,8 +171,7 @@ Output only the message in 1–3 sentences.
 #def accept_message(post, profile, exposure_count): # history
 def accept_message(source_post, target_profile, observed_history):
 
-    prompt = f"""
-You are a target user deciding whether to accept a message.
+    prompt = f"""You are a target user in a social network. Your task is to decide whether to ACCEPT or REJECT an incoming message.
 
 Message:
 {source_post}
@@ -183,11 +182,17 @@ Your Profile:
 Previously Observed Messages:
 {observed_history}
 
-Decide whether to accept the message based on its relevance,
-content, your profile, and your previous exposure.
+Evaluate the message by considering its relevance to your interests, goals, preferences, and concerns; the value and credibility of its content; and your previous exposure to similar messages.
 
-Return exactly one word: ACCEPT or REJECT.
-"""
+Weigh the evidence supporting acceptance against the evidence supporting rejection. Consider all available information and determine which decision is more strongly supported overall.
+
+You MUST make a decision. Choose ACCEPT if the reasons supporting acceptance outweigh the reasons supporting rejection. Choose REJECT if the reasons supporting rejection outweigh the reasons supporting acceptance.
+
+Do not automatically reject a message because of uncertainty, disagreement, or previous exposure. Do not automatically accept a message simply because it is relevant to your profile. Select the outcome that is dominant based on the overall evidence.
+
+ACCEPT means that you are willing to receive and consider the message; it does not necessarily mean that you agree with it or change your stance.
+
+Return exactly one word: ACCEPT or REJECT. Do not provide explanations or any additional text."""
 
     parameters = {
         "model": "llama3.1:latest",
