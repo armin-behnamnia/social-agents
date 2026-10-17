@@ -22,7 +22,7 @@ index b0c1984..f239807 100644
  export const metadata: Metadata = {
    title: 'LLMxIO 3D',
 diff --git a/dashboard/components/SettingsPanel.tsx b/dashboard/components/SettingsPanel.tsx
-index 04bec73..1f0b570 100644
+index 04bec73..5aad393 100644
 --- a/dashboard/components/SettingsPanel.tsx
 +++ b/dashboard/components/SettingsPanel.tsx
 @@ -36,10 +36,10 @@ export function SettingsPanel() {
@@ -30,7 +30,7 @@ index 04bec73..1f0b570 100644
                    </option>
                    <option value="8" style={{ background: '#0f172a', color: '#f1f5f9' }}>
 -                    Collective Decision-Making (Run 2)
-+                    RL Persuasion — random policy
++                    RL Persuasion — baseline (no goal-δ)
                    </option>
                    <option value="9" style={{ background: '#0f172a', color: '#f1f5f9' }}>
 -                    Collective Decision-Making (Run 3)

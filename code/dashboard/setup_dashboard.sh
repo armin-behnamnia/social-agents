@@ -76,5 +76,6 @@ if [[ ! -d node_modules ]]; then
   echo "[*] npm ci"
   if [[ -f package-lock.json ]]; then npm ci; else npm install; fi
 fi
-echo "[*] starting dev server on http://localhost:3000  (Ctrl-C to stop)"
-npm run dev
+PORT="${PORT:-3009}"
+echo "[*] starting dev server on http://localhost:${PORT}  (Ctrl-C to stop)"
+npm run dev -- -p "$PORT"

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import statistics
+import sys
 from pathlib import Path
 
 
@@ -481,6 +482,49 @@ JH = JUDGE["overall_hist"]
 jh_labels = sorted(JH, key=float)
 jh_values = [JH[k] for k in jh_labels]
 
+def dashboard_runs():
+    """Summarise the exported LLMxIO dashboard runs under report/dashboard/.
+
+    Reads the manifest (labels/metrics) and re-counts edges from the CSVs
+    so the report reflects the exact data the dashboard serves.
+    """
+    import csv as _csv
+
+    base = HERE / "dashboard"
+    labels: dict[str, dict] = {}
+    man = base / "manifest.json"
+    if man.exists():
+        labels = {str(k): v for k, v in
+                  json.loads(man.read_text()).get("runs", {}).items()}
+    runs = []
+    for rdir in sorted(base.glob("run*")):
+        num = rdir.name.replace("run", "")
+        mem = next(iter(rdir.glob("*memory*.csv")), None)
+        foll = next(iter(rdir.glob("*follow_log*.csv")), None)
+        if mem is None:
+            continue
+        with mem.open() as fh:
+            rows = list(_csv.DictReader(fh))
+        n_fol = 0
+        if foll is not None:
+            with foll.open() as fh:
+                n_fol = sum(1 for _ in _csv.DictReader(fh))
+        info = labels.get(num, {})
+        runs.append({
+            "run": num,
+            "label": info.get("label", f"run {num}"),
+            "adopted": info.get("final_adopted"),
+            "stance": info.get("mean_stance", ""),
+            "reward": info.get("total_reward"),
+            "follows": n_fol,
+            "retweets": sum(1 for r in rows if r.get("Type") == "retweet"),
+            "replies": sum(1 for r in rows if r.get("Type") == "comment"),
+            "influence": sum(1 for r in rows if r.get("Type") == "influence"),
+            "tweets": len(rows),
+        })
+    return runs
+
+
 pay = {
     "runs": RUNS,
     "prof_rows": prof_rows,
@@ -511,6 +555,7 @@ pay = {
     "goal": goal_validation(),
     "goal_backends": goal_backends(),
     "ab": ab_goal(),
+    "viz": {"runs": dashboard_runs()},
 }
 
 HTML = r"""<!DOCTYPE html>
@@ -629,6 +674,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
   <a href="#landscape">Strategy landscape</a>
   <a href="#next">Conclusions</a>
   <a href="#appendix">Appendix: strategy v2</a>
+  <a href="#viz">Simulation visualization</a>
 </nav>
 </div>
 
@@ -1062,11 +1108,32 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
   <p>Any candidate strategy space must clear all three, measured exactly as here: realisability <span class="mono">NN ≥ 0.60</span>; readability <span class="mono">judge SD ≥ 0.15</span> and <span class="mono">modal &lt; 40%</span>; and a target×action oracle gain that exceeds the per-episode reward noise (<span class="mono">SE ≈ 0.53</span>). A space that fails the third is unlearnable no matter how diverse its posts.</p>
 </div>
 
+<!-- ============ visualization ============ -->
+<h2 id="viz">Simulation visualization — LLMxIO 3D dashboard <a href="#toc" class="back-to-top" title="Back to contents">+</a></h2>
+<p class="state-line">The latest campaign arms are exported as an interactive 3D social network — agents, the follow graph, and the re-share cascades — in the LLMxIO dashboard, served locally on <span class="mono">:3009</span>.</p>
+<div class="table-wrapper">
+<table>
+  <thead><tr><th class="left">run</th><th class="left">policy</th><th>adopted</th><th>mean stance</th><th>reward</th><th class="left">edges (follow / retweet / reply)</th></tr></thead>
+  <tbody id="vizTable"></tbody>
+</table>
+</div>
+<div class="aside-container">
+  <div class="aside">
+    <div class="sidebar-title">how the mapping works</div>
+    <p>Agents map to personas (<span class="mono">u&lt;id&gt;</span> organic, <span class="mono">io&lt;id&gt;</span> info-op persuader). The whole topology is drawn from t0; each <em>adoption</em> adds a re-share edge and each non-adopting <em>accept</em> a reply edge, so the timeline shows the campaign spreading outward.</p>
+  </div>
+  <div class="aside">
+    <div class="sidebar-title">artifacts</div>
+    <p>Data: <span class="mono">report/dashboard/</span>. Runner: <span class="mono">code/dashboard/setup_dashboard.sh</span>. Exporter: <span class="mono">code/export_dashboard.py</span>. Dashboard pinned at commit <span class="mono">9f913ee</span>.</p>
+  </div>
+</div>
+
 <footer>
   generated from output/ppo5p_rn/live_run1/{training_log,results,results_final}.json,<br>
   output/ppo/*/results.json, replay trajectories, and the cached render+judge matrix (.llm_cache).<br>
   campaigns 4–5 from output/calibration/{alphas,beta_fine,goal_validate}.json.<br>
-  report_data.json • judge_probe.json • 2026-10-16
+  campaign 6 from report/{ab_goal,goal_backends}.json; visualization from report/dashboard/.<br>
+  report_data.json • judge_probe.json • 2026-10-17
 </footer>
 
 </div>
@@ -1569,6 +1636,18 @@ if(D.ab){
   }
 }
 
+const vz=document.getElementById('vizTable');
+if(vz && D.viz){
+  D.viz.runs.forEach(r=>{
+    const st=r.stance?`${r.stance}`:'—';
+    vz.insertAdjacentHTML('beforeend',
+      `<tr><td class="left mono">${r.run}</td><td class="left">${r.label}</td>`+
+      `<td class="mono">${r.adopted??'—'}</td><td class="mono">${st}</td>`+
+      `<td class="mono">${r.reward??'—'}</td>`+
+      `<td class="left mono">${r.follows} / ${r.retweets} / ${r.replies}</td></tr>`);
+  });
+}
+
 // scroll reveal
 document.querySelectorAll('.chart-container, .flyout, .aside-container').forEach(el=>el.classList.add('reveal'));
 const obs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target);}});},{threshold:0.15});
@@ -1580,5 +1659,8 @@ window.addEventListener('load',()=>document.querySelectorAll('.card-spark').forE
 """
 
 html = HTML.replace("__DATA__", json.dumps(pay))
-(HERE / "index.html").write_text(html)
-print("wrote", HERE / "index.html", f"({len(html)} bytes)")
+OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "index.html"
+if not OUT.is_absolute():
+    OUT = HERE / OUT
+OUT.write_text(html)
+print("wrote", OUT, f"({len(html)} bytes)")

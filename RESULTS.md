@@ -650,17 +650,20 @@ Persuaders are classified as **IO agents** (`io<id>`), the rest as organic
 users (`u<id>`). The campaign hashtag rides only on influence posts and
 their re-shares, so hashtag-adoption analytics track real adoption.
 
-**Exported runs** (matched protocol — v2 space, 50 agents, 5 persuaders,
+**Exported runs** — both are episodes of **already-run** campaign-6
+experiments (matched protocol: v2 space, 50 agents, 5 persuaders,
 erdos_renyi, 10 periods, `obs_mode=pair`, `random_neighbor`, seed 900000):
 
-| run | policy | adopted | mean stance | reward | edges (F/Rt/Rp) |
-|-----|--------|---------|-------------|--------|-----------------|
-| 8 | random | 13/50 | 0.485 → 0.231 | 7.83 | 180 / 10 / 56 |
-| 9 | trained (judge + goal-δ) | 19/50 | 0.485 → 0.142 | 9.02 | 180 / 19 / 80 |
+| run | experiment | adopted | mean stance | reward | edges (F/Rt/Rp) |
+|-----|------------|---------|-------------|--------|-----------------|
+| 8 | BT baseline (`ppo_v2_bt/live_run2`) | 16/50 | 0.485 → 0.181 | 8.61 | 180 / 12 / 70 |
+| 9 | judge + goal-δ (`ppo_v2_goal/live_goal_judge`) | 19/50 | 0.485 → **0.142** | 9.02 | 180 / 19 / 80 |
 
-The trained persuaders flip ~46% more agents and drive the mean stance
-lower than random — visible directly as denser re-share cascades in the
-dashboard's timeline.
+The trained arm flips ~19% more agents than the baseline and drives the
+mean stance lower — visible directly as denser re-share cascades in the
+dashboard's timeline. Served on **http://localhost:3009** (port set in
+`code/dashboard/setup_dashboard.sh`); the *Simulation visualization*
+section of `report/index_2.html` summarises the same runs.
 
 **Validation.** Rather than eyeball it, we bundled the dashboard's *real*
 TypeScript pipeline (`loadSimulationData` → `processSimulationData` →

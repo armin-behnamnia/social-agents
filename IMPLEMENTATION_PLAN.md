@@ -309,6 +309,9 @@ end-to-end smoke run reported `id=15, text=0, none=0` (zero fallbacks), and
     runner + patch + docs. Trained (run 9) and random-policy (run 8)
     trajectories exported; validated through the dashboard's own TS
     pipeline. See `code/dashboard/README.md` and `report/dashboard/`.
+    Served on port 3009; runs are episodes of already-run campaign-6
+    experiments (baseline run 8, judge + goal-δ run 9). Report section in
+    `report/index_2.html` (`report/build_report.py index_2.html`).
 
 ## Sequencing
 1. **C** first (cheap, removes a silent failure mode; no behavior change on the

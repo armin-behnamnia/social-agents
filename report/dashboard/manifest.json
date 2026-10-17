@@ -1,6 +1,7 @@
 {
   "source": "code.export_dashboard",
   "dashboard": "https://github.com/SIGNALS-Lab/LLMxIO_Dashboard @ 9f913ee",
+  "note": "Both runs are episodes of experiments that were already run (campaign 6: the BT baseline and the judge + goal-delta arm); no new training is required to reproduce them.",
   "protocol": {
     "strategy_space": "v2 (angle x evidence x address, 72 arms)",
     "agents": 50, "persuaders": 5, "topology": "erdos_renyi",
@@ -8,9 +9,15 @@
     "seed": 900000, "profile_seed": 1234
   },
   "runs": {
-    "8": {"label": "random policy", "trajectory": "output/ppo_v2_goal/random_viz/trajectory.json",
-          "final_adopted": 13, "mean_stance": "0.485 -> 0.231", "total_reward": 7.828},
-    "9": {"label": "trained (judge reward, goal delta)", "trajectory": "output/ppo_v2_goal/live_goal_judge/viz/trajectory.json",
+    "8": {"label": "baseline (no goal-delta)",
+          "experiment": "output/ppo_v2_bt/live_run2 (campaign 6, --judge bt)",
+          "policy": "output/ppo_v2_bt/live_run2/policy.pt",
+          "trajectory": "output/ppo_v2_bt/live_run2/viz/trajectory.json",
+          "final_adopted": 16, "mean_stance": "0.485 -> 0.181", "total_reward": 8.610},
+    "9": {"label": "trained (judge + goal-delta)",
+          "experiment": "output/ppo_v2_goal/live_goal_judge (campaign 6, --align judge --goal-delta)",
+          "policy": "output/ppo_v2_goal/live_goal_judge/policy.pt",
+          "trajectory": "output/ppo_v2_goal/live_goal_judge/viz/trajectory.json",
           "final_adopted": 19, "mean_stance": "0.485 -> 0.142", "total_reward": 9.017}
   },
   "schema": {

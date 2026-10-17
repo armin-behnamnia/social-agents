@@ -43,23 +43,31 @@ hashtag-adoption analytics count *actual* adoption, not chatter.
 ```bash
 cd /workspace/armin/social-agents
 
-# 1. record an episode from a trained policy (or omit --policy for random)
-PERSUASION_STRATEGY_SPACE=v2 PYTHONPATH=. .venv/bin/python -m code.visualize \
-  --mode live --policy output/ppo_v2_goal/live_goal_judge/policy.pt \
-  --output-dir output/ppo_v2_goal/live_goal_judge/viz \
-  --agent-num 50 --n-persuaders 5 --n-periods 10 \
-  --topology erdos_renyi --target-selection random_neighbor --obs-mode pair \
-  --seed 900000
+# 1. record an episode from each already-run campaign-6 policy
+for spec in \
+  "output/ppo_v2_bt/live_run2:baseline (no goal-delta)" \
+  "output/ppo_v2_goal/live_goal_judge:trained (judge + goal-delta)"; do
+  d="${spec%%:*}"; lbl="${spec#*:}"
+  PERSUASION_STRATEGY_SPACE=v2 PYTHONPATH=. .venv/bin/python -m code.visualize \
+    --mode live --policy "$d/policy.pt" --output-dir "$d/viz" \
+    --agent-num 50 --n-persuaders 5 --n-periods 10 \
+    --topology erdos_renyi --target-selection random_neighbor --obs-mode pair \
+    --seed 900000 --label "$lbl"
+done
 
-# 2. clone + patch the dashboard, export the runs, and serve it
+# 2. clone + patch the dashboard, export the runs, and serve it (port 3009)
 code/dashboard/setup_dashboard.sh /tmp/LLMxIO_Dashboard \
-  output/ppo_v2_goal/live_goal_judge/viz/trajectory.json:9 \
-  output/ppo_v2_goal/random_viz/trajectory.json:8
+  output/ppo_v2_bt/live_run2/viz/trajectory.json:8 \
+  output/ppo_v2_goal/live_goal_judge/viz/trajectory.json:9
 ```
 
-Then open <http://localhost:3000> and pick **"RL Persuasion — social-agents
-(judge)"** (run 9) or **"RL Persuasion — random policy"** (run 8) in the
-*Experiment Run* dropdown.
+Both runs are episodes of **experiments that were already run** (campaign 6:
+the BT baseline and the judge + goal-δ arm) — no new training is required.
+
+Then open <http://localhost:3009> and pick **"RL Persuasion — baseline (no
+goal-δ)"** (run 8) or **"RL Persuasion — social-agents (judge)"** (run 9) in
+the *Experiment Run* dropdown. (The port defaults to `3009`; override with
+`PORT=3000 code/dashboard/setup_dashboard.sh ...`.)
 
 `setup_dashboard.sh <dashboard_dir> <traj:runnum> [<traj:runnum> ...]`
 - clones the dashboard at the pinned commit if `<dashboard_dir>` is absent,
@@ -88,11 +96,14 @@ and run in Node against the exported data:
 
 | run | agents | edges | maxIter |
 |-----|--------|-------|---------|
-| 8 (random) | 50 | 180 follows + 56 replies + 10 retweets = 246 | 10 |
+| 8 (baseline) | 50 | 180 follows + 70 replies + 12 retweets = 262 | 10 |
 | 9 (trained) | 50 | 180 follows + 80 replies + 19 retweets = 279 | 10 |
 
-Trained run: 5 IO (Republican) + 45 organic (Democratic); all 8 metric
-blocks precompute without error. `next build` type-checks the patch.
+Baseline run: 16/50 adopted (mean stance 0.485 → 0.181, reward 8.61);
+trained run: 19/50 adopted (0.485 → 0.142, 9.02). Each has 5 IO
+(Republican) + 45 organic (Democratic) agents; all 8 metric blocks
+precompute without error. `next build` type-checks the patch, and the
+patch applies forward on a fresh clone at the pinned commit.
 
 ## Caveats
 
