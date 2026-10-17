@@ -631,3 +631,40 @@ in `report/ab_goal.json` is stitched from the per-segment records.)
 backend is direction-aware*. `semdiff` is fit for smoke tests only; a real
 campaign must use `judge` (or a calibrated equivalent). The next full
 300×32 run (item 16) should therefore run `--goal-delta --align judge`.
+
+---
+
+# D. Simulation visualization — LLMxIO 3D dashboard
+
+We mapped a recorded episode onto the
+[`SIGNALS-Lab/LLMxIO_Dashboard`](https://github.com/SIGNALS-Lab/LLMxIO_Dashboard)
+schema so the persuasion dynamics can be explored as an interactive 3D
+network (`code/export_dashboard.py`, `code/dashboard/`).
+
+**Mapping.** Agent → persona; the interaction graph → `follow_log` (all
+edges at t0, so the whole network is visible immediately); seed/persuader
+messages → `influence` tweets; each **adoption** → the adopter *retweets*
+the message that reached it (a propagation/cascade edge); each
+non-adopting **accept** → the target *comments* on it (a reply edge).
+Persuaders are classified as **IO agents** (`io<id>`), the rest as organic
+users (`u<id>`). The campaign hashtag rides only on influence posts and
+their re-shares, so hashtag-adoption analytics track real adoption.
+
+**Exported runs** (matched protocol — v2 space, 50 agents, 5 persuaders,
+erdos_renyi, 10 periods, `obs_mode=pair`, `random_neighbor`, seed 900000):
+
+| run | policy | adopted | mean stance | reward | edges (F/Rt/Rp) |
+|-----|--------|---------|-------------|--------|-----------------|
+| 8 | random | 13/50 | 0.485 → 0.231 | 7.83 | 180 / 10 / 56 |
+| 9 | trained (judge + goal-δ) | 19/50 | 0.485 → 0.142 | 9.02 | 180 / 19 / 80 |
+
+The trained persuaders flip ~46% more agents and drive the mean stance
+lower than random — visible directly as denser re-share cascades in the
+dashboard's timeline.
+
+**Validation.** Rather than eyeball it, we bundled the dashboard's *real*
+TypeScript pipeline (`loadSimulationData` → `processSimulationData` →
+`precomputeAllMetrics`) with esbuild and ran it in Node against the
+exported CSVs: both runs load 50 agents, build the expected edges, and
+compute all 8 metric blocks without error; `next build` type-checks the
+integration patch. Raw data is committed under `report/dashboard/`.

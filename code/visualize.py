@@ -108,14 +108,26 @@ def record_episode(env, policy=None, seed: int = 900_000,
         actions_out = []
         for rec in info["persuader_actions"]:
             spec = rec["strategy"]
+            # Be agnostic to the strategy-space version: v1 specs carry
+            # appeal/tone/emphasis/intensity, v2 specs carry
+            # angle/evidence/address.
+            fields = {
+                f: getattr(spec, f)
+                for f in ("appeal", "tone", "emphasis",
+                          "angle", "evidence", "address")
+                if hasattr(spec, f)
+            }
+            label = "|".join(f"{k}={v}" for k, v in fields.items())
+            intensity = getattr(spec, "intensity", None)
             actions_out.append({
                 "persuader": int(rec["persuader"]),
                 "target": rec["target"],
                 "strategy_index": int(rec["strategy_index"]),
-                "appeal": spec.appeal,
-                "tone": spec.tone,
-                "emphasis": spec.emphasis,
-                "intensity": float(spec.intensity),
+                **fields,
+                "strategy_label": label,
+                "intensity": (
+                    float(intensity) if intensity is not None else None
+                ),
                 "persuasiveness": (
                     float(rec["persuasiveness"])
                     if rec["persuasiveness"] is not None else None
@@ -254,8 +266,8 @@ def render_frame(ax, traj, period_idx, layout=None):
              f"mean stance: {mean_s:+.3f}")
     if per["actions"]:
         acts = "; ".join(
-            f"P{a['persuader']}→{a['target']}"
-            f"({a['appeal'][:5]}/{a['tone'][:4]})"
+            f"P{a['persuader']}\u2192{a['target']}"
+            f"({(a.get('strategy_label') or '')[:14]})"
             for a in per["actions"]
         )
         title += f"\n{acts}"
@@ -395,12 +407,12 @@ function show(i) {
     `episode reward ${m.total_reward.toFixed(2)} | ` +
     `mean stance ${m.initial_mean_stance.toFixed(3)} -> ` +
     `${m.final_mean_stance.toFixed(3)}`;
-  let a = "<table><tr><th>P</th><th>target</th><th>appeal/tone/" +
-      "emphasis</th><th>persuasiveness</th><th>message</th></tr>";
+  let a = "<table><tr><th>P</th><th>target</th><th>strategy</th>" +
+      "<th>persuasiveness</th><th>message</th></tr>";
   for (const x of per.actions) {
     a += `<tr><td>${esc(x.persuader)}</td><td>${esc(x.target)}</td>` +
-      `<td>${esc(x.appeal)}/${esc(x.tone)}/${esc(x.emphasis)} ` +
-      `(${(x.intensity).toFixed(2)})</td>` +
+      `<td>${esc(x.strategy_label)}${x.intensity == null ? "" :
+       ` (${x.intensity.toFixed(2)})`}</td>` +
       `<td>${x.persuasiveness == null ? "-" :
        x.persuasiveness.toFixed(2)}</td>` +
       `<td class="msg">${esc(x.message)}</td></tr>`;

@@ -303,6 +303,12 @@ end-to-end smoke run reported `id=15, text=0, none=0` (zero fallbacks), and
 **Finally**
 16. [ ] Re-run the 300×32 campaign on a fresh output dir (v2 baselines stay
     comparable); regenerate `report/index.html`.
+17. [x] **Visualize the simulations** with the LLMxIO 3D dashboard
+    (`SIGNALS-Lab/LLMxIO_Dashboard`): `code/export_dashboard.py` maps a
+    recorded episode onto the dashboard schema, `code/dashboard/` holds the
+    runner + patch + docs. Trained (run 9) and random-policy (run 8)
+    trajectories exported; validated through the dashboard's own TS
+    pipeline. See `code/dashboard/README.md` and `report/dashboard/`.
 
 ## Sequencing
 1. **C** first (cheap, removes a silent failure mode; no behavior change on the

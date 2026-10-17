@@ -1,0 +1,68 @@
+diff --git a/dashboard/app/layout.tsx b/dashboard/app/layout.tsx
+index b0c1984..f239807 100644
+--- a/dashboard/app/layout.tsx
++++ b/dashboard/app/layout.tsx
+@@ -1,13 +1,12 @@
+ import type { Metadata } from 'next';
+-import { Inter } from 'next/font/google';
+ import './globals.css';
+ import { GoogleAnalytics } from '@/components/GoogleAnalytics';
+ 
+-const inter = Inter({ 
+-  subsets: ['latin'],
+-  display: 'swap',
+-  variable: '--font-inter'
+-});
++// Offline note: next/font/google requires internet to fetch Inter at build
++// time. This environment has no route to fonts.googleapis.com, so we fall
++// back to the system sans stack (the variable/className are kept as no-ops
++// so the rest of the layout is unchanged).
++const inter = { variable: '--font-inter', className: 'font-sans' };
+ 
+ export const metadata: Metadata = {
+   title: 'LLMxIO 3D',
+diff --git a/dashboard/components/SettingsPanel.tsx b/dashboard/components/SettingsPanel.tsx
+index 04bec73..1f0b570 100644
+--- a/dashboard/components/SettingsPanel.tsx
++++ b/dashboard/components/SettingsPanel.tsx
+@@ -36,10 +36,10 @@ export function SettingsPanel() {
+                     Collective Decision-Making (Run 1)
+                   </option>
+                   <option value="8" style={{ background: '#0f172a', color: '#f1f5f9' }}>
+-                    Collective Decision-Making (Run 2)
++                    RL Persuasion — random policy
+                   </option>
+                   <option value="9" style={{ background: '#0f172a', color: '#f1f5f9' }}>
+-                    Collective Decision-Making (Run 3)
++                    RL Persuasion — social-agents (judge)
+                   </option>
+                   <option value="4" style={{ background: '#0f172a', color: '#f1f5f9' }}>
+                     Teammate Awareness (Run 1)
+diff --git a/dashboard/store/simulationStore.ts b/dashboard/store/simulationStore.ts
+index 7a4b041..a4abec4 100644
+--- a/dashboard/store/simulationStore.ts
++++ b/dashboard/store/simulationStore.ts
+@@ -60,7 +60,7 @@ interface SimulationStore {
+ export const useSimulationStore = create<SimulationStore>((set, get) => ({
+   // Initial state
+   networkState: null,
+-  currentRunNumber: 7,
++  currentRunNumber: 9,
+   isPlaying: false,
+   playbackSpeed: 1,
+   selectedAgent: null,
+diff --git a/dashboard/utils/dataParser.ts b/dashboard/utils/dataParser.ts
+index ebb873d..325b65b 100644
+--- a/dashboard/utils/dataParser.ts
++++ b/dashboard/utils/dataParser.ts
+@@ -265,8 +265,8 @@ export async function loadSimulationData(
+     { fileNum: 3, type: 'repub', folderName: 'v2_hashtag_teammateaware', filePrefix: 'v2_hashtag', suffix: '_new' }, // Run 6
+     // Collective Decision Making scenarios - v3_hashtag_collectivedecisionmaking folder, v3_hashtag files
+     { fileNum: 1, type: 'repub', folderName: 'v3_hashtag_collectivedecisionmaking', filePrefix: 'v3_hashtag' }, // Run 7
+-    { fileNum: 2, type: 'repub', folderName: 'v3_hashtag_collectivedecisionmaking', filePrefix: 'v3_hashtag' }, // Run 8
+-    { fileNum: 3, type: 'repub', folderName: 'v3_hashtag_collectivedecisionmaking', filePrefix: 'v3_hashtag' }, // Run 9
++    { fileNum: 8, type: 'repub' }, // Run 8 — social-agents random policy
++    { fileNum: 9, type: 'repub' }, // Run 9 — social-agents persuasion (legacy path data/v1/9/)
+   ];
+   
+   const mapping = runMapping[runNumber - 1];

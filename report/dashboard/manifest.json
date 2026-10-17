@@ -1,0 +1,22 @@
+{
+  "source": "code.export_dashboard",
+  "dashboard": "https://github.com/SIGNALS-Lab/LLMxIO_Dashboard @ 9f913ee",
+  "protocol": {
+    "strategy_space": "v2 (angle x evidence x address, 72 arms)",
+    "agents": 50, "persuaders": 5, "topology": "erdos_renyi",
+    "periods": 10, "obs_mode": "pair", "target_selection": "random_neighbor",
+    "seed": 900000, "profile_seed": 1234
+  },
+  "runs": {
+    "8": {"label": "random policy", "trajectory": "output/ppo_v2_goal/random_viz/trajectory.json",
+          "final_adopted": 13, "mean_stance": "0.485 -> 0.231", "total_reward": 7.828},
+    "9": {"label": "trained (judge reward, goal delta)", "trajectory": "output/ppo_v2_goal/live_goal_judge/viz/trajectory.json",
+          "final_adopted": 19, "mean_stance": "0.485 -> 0.142", "total_reward": 9.017}
+  },
+  "schema": {
+    "follow_log": "Iteration,Agent Name,Followed User,Reason",
+    "memory": "TweetID,Agent Name,Iteration,Content,Type,Retweets,Likes,Replies,Retweeted From,Retweet Reason,Strategy,Commented On",
+    "naming": {"targets": "u<id>", "persuaders": "io<id> (IO agents)"},
+    "types": {"influence": "persuader/seed message", "retweet": "adoption (propagation edge)", "comment": "non-adopting accept (reply edge)"}
+  }
+}
