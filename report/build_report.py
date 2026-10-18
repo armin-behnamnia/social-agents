@@ -6,6 +6,7 @@ from the run artifacts) and emits report/index.html.
 """
 from __future__ import annotations
 
+import csv
 import json
 import re
 import statistics
@@ -673,6 +674,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
   <a href="#channel">The reward channel</a>
   <a href="#landscape">Strategy landscape</a>
   <a href="#next">Conclusions</a>
+  <a href="#viz">Simulation visualization</a>
   <a href="#appendix">Appendix: strategy v2</a>
   <a href="#viz">Simulation visualization</a>
 </nav>
