@@ -239,10 +239,10 @@ class LLMSocialAgent(NetworkAgent):
     def infection_stance_aware(self, agents: "AgentList[LLMSocialAgent]", 
         period: int, diffusion_events: list, message_events: list, source_agent):
 
-        if self.id == source_agent.id: return
+        if self.id == source_agent.id: print("same_target_id, target_id: ", self.id) ;return
 
         if (source_agent.post is None or not str(source_agent.post).strip()):
-            print(f"WARNING: source Agent {source_agent.id} has an empty post. Skipping influence.")
+           # print(f"WARNING: source Agent {source_agent.id} has an empty post. Skipping influence; target_id: ", self.id)
             return
 
         # ----------------------------------------------------------
@@ -251,7 +251,7 @@ class LLMSocialAgent(NetworkAgent):
 
         if source_agent.post_embedding is None: 
             source_agent.post_embedding = self._get_embedding(source_agent.post)
-            print(f"WARNING: source Agent {source_agent.id} has no valid post embedding. Skipping influence.")
+            #print(f"WARNING: source Agent {source_agent.id} has no valid post embedding. Skipping influence. target_id:", self.id)
             return
 
         # ----------------------------------------------------------
@@ -339,11 +339,6 @@ class LLMSocialAgent(NetworkAgent):
         # 10. Save message event
         # ----------------------------------------------------------
 
-        self.save_message_event(message_events, period, source_agent, influence_prob, estimated_stance_shift, 
-        estimated_stance_shift_post, estimated_stance_shift_profile, old_profile, self.profile_embedding,
-        new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
-        generated_post_embedding, target_stance_before, target_stance_after)
-
         self.post = str(generated_post).strip()
         self.post_embedding = generated_post_embedding
         self.profile = new_profile; self.profile_embedding = new_profile_embedding
@@ -351,16 +346,21 @@ class LLMSocialAgent(NetworkAgent):
         profile_changed = (new_profile is not None and new_profile != old_profile)
         emerged = post_changed or profile_changed
         #if emerged: self.preference_state = 1
-
-        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, behavior)
+        self.save_message_event(message_events, period, source_agent, influence_prob, estimated_stance_shift,
+        estimated_stance_shift_post, estimated_stance_shift_profile, old_profile, self.profile_embedding,
+        new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
+        generated_post_embedding, target_stance_before, target_stance_after, emerged)
+        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, emerged)
         return emerged
 
     def infection(self, agents, period,diffusion_events, message_events, source_agent):
         if self.id == source_agent.id:
+            print("initial return, same id,  target_id: ", self.id); 
             return False
 
         source_post = source_agent.post
         if not source_post or not str(source_post).strip():
+            print("initial return, !post, target_id: ", self.id);
             return False
 
         # Ensure source embedding exists
@@ -368,6 +368,7 @@ class LLMSocialAgent(NetworkAgent):
             source_agent.post_embedding = self._get_embedding(source_post)
 
         if source_agent.post_embedding is None:
+            print("initial return,!post_embedding, target_id: ", self.id);
             return False
 
         # Save the target's previous state
@@ -383,22 +384,28 @@ class LLMSocialAgent(NetworkAgent):
         # Decide whether to accept the message
         self.received_message_history.append(source_post)
         decision = accept_message(source_post, self.profile, self.received_message_history)
-
-        if decision != "ACCEPT":
-            return False
-
+        decision = str(decision).strip().upper()
+        #if "REJECT" in decision:
+        self.save_message_event(message_events, period, source_agent, influence_prob, 0,
+            0, 0, old_profile, self.profile_embedding,
+            "", "", source_agent.post, source_agent.post_embedding,"","", target_stance_before,
+            target_stance_after, decision)
+        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, decision)
+        #print("Decision, saved, return, target_id: ", self.id);return False
+        #elif "Accept" in decision:
+        #   print("Message Accepted: ",decision)
         # Internalize and respond to the received message
         new_profile = update_profile(
             received=source_post,
             profile=self.profile
         )
-
+        new_profile_embedding = self._get_embedding(new_profile)
         generated_post = generate_information(
             received=source_post,
             profile=self.profile,
             old_post=self.post
         )
-
+        generated_post_embedding = self._get_embedding(generated_post)
         # Validate outputs and retain the old values if needed
         if not generated_post or not str(generated_post).strip():
             generated_post = old_post
@@ -406,6 +413,10 @@ class LLMSocialAgent(NetworkAgent):
         if new_profile is None:
             new_profile = old_profile
 
+        self.save_message_event(message_events, period, source_agent, influence_prob, 0,
+            0,0 ,old_profile, self.profile_embedding,
+            new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
+            generated_post_embedding, target_stance_before, target_stance_after, decision)
         # Detect emergence from observable changes
         post_changed = (
             generated_post is not None
@@ -415,6 +426,7 @@ class LLMSocialAgent(NetworkAgent):
         emerged = post_changed or profile_changed
 
         if not emerged:
+            print("dont emerged, return, target_id: ", self.id);
             return False
 
         # Update the target's observable state
@@ -425,7 +437,9 @@ class LLMSocialAgent(NetworkAgent):
 
         # Mark the target as emerged/infected
         self.preference_state = 1
-
+        print("Final emerged, saved, return, target_id: ", self.id);
+        #return False 
+        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, emerged)
         # Record events here using your existing event methods.
         # Ensure estimated shifts and behavior are defined first.
 
@@ -634,7 +648,7 @@ class LLMSocialAgent(NetworkAgent):
                 influence_prob,
 
             "interaction":
-                "exposure",
+                self.exposure_count,
 
             "behavior": behavior,
             "adopted": int(behavior == "accept"),
@@ -662,7 +676,8 @@ class LLMSocialAgent(NetworkAgent):
         generated_post,
         generated_post_embedding,
         target_stance_before,
-        target_stance_after
+        target_stance_after,
+        decision
     ):
 
         message_events.append({
@@ -746,5 +761,6 @@ class LLMSocialAgent(NetworkAgent):
     # ------------------------------------------------------
     # Seed
     # ------------------------------------------------------
-    "is_seed": int(self.isSeed)
+    "is_seed": int(self.isSeed),
+    "decision": decision 
 })

@@ -177,14 +177,14 @@ class LLMEnvironment(Environment):
     def selective_post(self, messages, messages_embeddings, target_agent):
         similarities = []
         for embedding in messages_embeddings:
-            similarity = _cosine_similarity(embedding, self.profile_embedding)
+            similarity = cosine_similarity(embedding, target_agent.profile_embedding)
         similarities.append(similarity)
         best_idx = similarities.index(max(similarities))
         return messages[best_idx], messages_embeddings[best_idx]
 
     def select_post(self, source_agent, target_agent): # Default scenario type is Generic
         if self.scenario.scenario_type == "Selective":
-            source_agent.post, source_agent.post_embedding  = self.selective_post(scenario.sub_influence_msgs, scenario.sub_influence_msgs_embeddings, target_agent )
+            source_agent.post, source_agent.post_embedding  = self.selective_post(self.scenario.sub_influence_msgs, self.scenario.sub_influence_msgs_embeddings, target_agent )
         elif self.scenario.scenario_type == "Generative":
             source_agent.post = goal_promotion(target_agent.profile)
             source_agent.post_embedding = self.text2embedding(source_agent.post)
@@ -291,13 +291,21 @@ class LLMEnvironment(Environment):
         self.information_analysis(agents)
         #print("calc_population_infection")
 
-    def save_information_analysis(self, agents: "AgentList[LLMSocialAgent]"):
-        filename = f"data/output/user_posts_{str(self.scenario.id)}.txt"
+    def save_information_analysis(self, agents: "AgentList[LLMSocialAgent]", method):
+        output_dir = f"data/output_{method}"
+        os.makedirs(output_dir, exist_ok=True)
+
+        filename = os.path.join(
+            output_dir,
+            f"user_posts_{str(self.scenario.id)}.txt"
+        )
         with open(filename, 'w', encoding="utf-8") as file:
             for agent in agents:
                 file.write("User ID" + str(agent.id + 1) + ": " + str(agent.post or "") + "\n")
-
-        filename = f"data/output/user_accepts_{str(self.scenario.id)}.txt"
+        filename = os.path.join(
+            output_dir,
+            f"user_accepts_{str(self.scenario.id)}.txt"
+        )
         with open(filename, 'w', encoding="utf-8") as file:
             for agent in agents:
                 if agent.influencer is not None:
