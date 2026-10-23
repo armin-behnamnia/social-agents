@@ -291,8 +291,8 @@ class LLMEnvironment(Environment):
         self.information_analysis(agents)
         #print("calc_population_infection")
 
-    def save_information_analysis(self, agents: "AgentList[LLMSocialAgent]", method):
-        output_dir = f"data/output_{method}"
+    def save_information_analysis(self, agents: "AgentList[LLMSocialAgent]", method, k=1):
+        output_dir = f"data/output_{method}_{k}"
         os.makedirs(output_dir, exist_ok=True)
 
         filename = os.path.join(
@@ -339,8 +339,8 @@ class LLMEnvironment(Environment):
         #print("alteration_degree after seueeze: ", self.alteration_degree )
         # print(self.alteration_degree)
 
-    def save_diffusion_events(self, method):
-        output_dir = f"data/output_{method}"
+    def save_diffusion_events(self, method, k):
+        output_dir = f"data/output_{method}_{k}"
         os.makedirs(output_dir, exist_ok=True)
 
         filename = os.path.join(

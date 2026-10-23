@@ -127,48 +127,49 @@ class LLMModel(Model):
         self.calculate_degree_centrality()
         self.calculate_betweenness_centrality()
 
-    def run_stance_aware(self, method=""):
+    def run_stance_aware(self, method="", k=1):
         for period in self.iterator(self.scenario.period_num):
             print(f"period: {period}",flush=True)
-            if period > 0 :
-                if method =="stance_aware":
-                    print("stance_aware infection is opend"); #breakpoint()
-                    self.environment.agents_infection_stance_aware(self.agents, period)
-                    print("stance_aware infection is closed")
-                else:
-                    print("Exposure-aware infection is opend")
-                    self.environment.agents_infection(self.agents, period)
-                    print("Exposure-aware infection is closed")
+           # if period > 0 :
+            if method =="stance_aware":
+                print("stance_aware infection is opend"); #breakpoint()
+                self.environment.agents_infection_stance_aware(self.agents, period, k)
+                print("stance_aware infection is closed")
+            else:
+                print("Exposure-aware infection is opend")
+                self.environment.agents_infection(self.agents, period)
+                print("Exposure-aware infection is closed")
             self.environment.calc_population_infection_state(self.agents)
             self.data_collector.collect(period)
         self.data_collector.save()
-        self.environment.save_information_analysis(self.agents, method)
-        self.environment.save_diffusion_events(method)
+        self.environment.save_information_analysis(self.agents, method, k)
+        self.environment.save_diffusion_events(method, k)
         print("Simulation finished.", flush=True)
 
-    def run_exposure(self, method=""):
+    def run_exposure(self, method="", k=1):
+        print("self.scenario.period_num: ", self.scenario.period_num)
         for period in self.iterator(self.scenario.period_num):
             print(f"period: {period}",flush=True)
-            if period > 0 :
-                if method =="stance_aware":
-                    print("stance_aware infection is opend"); #breakpoint()
-                    self.environment.agents_infection_stance_aware(self.agents, period)
-                    print("stance_aware infection is closed")
-                else:
-                    print("Exposure-aware infection is opend")
-                    self.environment.agents_infection(self.agents, period)
-                    print("Exposure-aware infection is closed")
+            #if period > 0 :
+            if method =="stance_aware":
+                print("stance_aware infection is opend"); #breakpoint()
+                self.environment.agents_infection_stance_aware(self.agents, period,k)
+                print("stance_aware infection is closed")
+            else:
+                print("Exposure-aware infection is opend")
+                self.environment.agents_infection(self.agents, period)
+                print("Exposure-aware infection is closed")
             self.environment.calc_population_infection_state(self.agents)
             self.data_collector.collect(period)
         self.data_collector.save()
-        self.environment.save_information_analysis(self.agents, method)
-        self.environment.save_diffusion_events(method)
+        self.environment.save_information_analysis(self.agents, method, k)
+        self.environment.save_diffusion_events(method,k)
         print("Simulation finished.", flush=True)
 
     def run(self, method=""):
         self.initialisation()
-        self.run_stance_aware( method="stance_aware")
-        self.run_exposure( method="")
+        self.run_stance_aware( method="stance_aware", k=2)
+        self.run_exposure( method="", k=1)
           
     def load_agent_profiles(self):
         user_profiles = []

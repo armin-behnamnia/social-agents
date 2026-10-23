@@ -6,7 +6,7 @@ from source.tools import text2embedding
 class LLMScenario(Scenario):
     def setup(self):
         self.debug = False
-        self.period_num: int = 20
+        self.period_num: int = 10
         self.run_num: int = 1
         self.agent_num: int = 50
         # Inference

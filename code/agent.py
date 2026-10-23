@@ -385,13 +385,13 @@ class LLMSocialAgent(NetworkAgent):
         self.received_message_history.append(source_post)
         decision = accept_message(source_post, self.profile, self.received_message_history)
         decision = str(decision).strip().upper()
-        #if "REJECT" in decision:
-        self.save_message_event(message_events, period, source_agent, influence_prob, 0,
+        if "REJECT" in decision:
+            self.save_message_event(message_events, period, source_agent, influence_prob, 0,
             0, 0, old_profile, self.profile_embedding,
             "", "", source_agent.post, source_agent.post_embedding,"","", target_stance_before,
             target_stance_after, decision)
-        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, decision)
-        #print("Decision, saved, return, target_id: ", self.id);return False
+            self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, decision)
+        print("Decision: ", decision, "target_id: ", self.id);return False
         #elif "Accept" in decision:
         #   print("Message Accepted: ",decision)
         # Internalize and respond to the received message
