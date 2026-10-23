@@ -168,7 +168,7 @@ class LLMModel(Model):
 
     def run(self, method=""):
         self.initialisation()
-        self.run_stance_aware( method="stance_aware", k=2)
+        self.run_stance_aware( method="stance_aware", k=1)
         self.run_exposure( method="", k=1)
           
     def load_agent_profiles(self):

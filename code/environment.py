@@ -223,8 +223,8 @@ class LLMEnvironment(Environment):
 
                 target_agent.exposure_count += 1
                 if target_agent.exposure_count > k: continue
-                if source_agent.stance < 0:
-                    self.select_post(source_agent, target_agent)
+                # if source_agent.stance < 0:
+                #     self.select_post(source_agent, target_agent)
                 target_agent.infection_stance_aware(agents,period,self.diffusion_events,self.message_events,source_agent)
                 self.update_observer(target_agent, period)
                 # Newly infected targets can spread information too
@@ -262,8 +262,8 @@ class LLMEnvironment(Environment):
                 target.exposure_count += 1
 
                 #if target.exposure_count < k: continue
-                if source.stance<0:
-                    self.select_post(source, target)
+                #if source.stance<0:
+                #    self.select_post(source, target)
                 emerged = target.infection(agents, period, self.diffusion_events, self.message_events, source)
 
                 if emerged:
