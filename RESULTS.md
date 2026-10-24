@@ -721,3 +721,14 @@ open design questions:
    `alpha_degree_stance`) vs our 0.25. Keep ours for comparability;
    note in any paper comparison.
 
+**Decisions (2026-10-24)**: campaign protocol *matched to campaign 6*
+(α/susceptibility = ours, v2 space, BT judge, 50/5/erdos_renyi/10,
+pair, random_neighbor, seed 0, 300×32, paired eval 20/50); exposure
+reward = adoption bonus 1.0 + accept shaping 0.05 + judge λ·a(m)
+(`PERSUASION_GOAL_LAMBDA=0.2`, λ new — campaign 6 never used reward
+shaping); persuader observes true state (particle-filter obs deferred);
+full 300×32 for both mechanisms. One unavoidable deviation: exposure
+runs use `--mech-beta-init` (mechanism is non-functional otherwise).
+Runner: `code/run_mech_campaigns.sh` (preflights the chat endpoint,
+runs C7 cascade → C8 exposure serially into `output/ppo_mech_*/live`).
+

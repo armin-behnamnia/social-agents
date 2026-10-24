@@ -480,7 +480,11 @@ class ElitePersuaderEnv:
         if self._random_neighbor:
             self._draw_pending_targets()
         targets = self._candidate_targets()
-        info = {"action_mask": self._action_mask(targets), "candidates": targets}
+        info = {
+            "action_mask": self._action_mask(targets),
+            "candidates": targets,
+            "mechanism": self.mechanism,
+        }
         return self._observation(), info
 
     def _decode_action(self, action, targets, persuader_idx: int = 0):
