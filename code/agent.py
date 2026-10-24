@@ -238,12 +238,19 @@ class LLMSocialAgent(NetworkAgent):
 
     def infection_stance_aware(self, agents: "AgentList[LLMSocialAgent]", 
         period: int, diffusion_events: list, message_events: list, source_agent):
+       
+        self.save_message_event(message_events, period, source_agent, influence_prob, estimated_stance_shift,
+        estimated_stance_shift_post, estimated_stance_shift_profile, old_profile, self.profile_embedding,
+        new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
+        generated_post_embedding, target_stance_before, target_stance_after, self.emerged)
+        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, self.emerged)
 
-        if self.id == source_agent.id: print("same_target_id, target_id: ", self.id) ;return
+        print("emerged? ",self.emerged, " id:", self.id); # return False
+        if self.id == source_agent.id: print("same_target_id, target_id: ", self.id) ; return False
 
         if (source_agent.post is None or not str(source_agent.post).strip()):
            # print(f"WARNING: source Agent {source_agent.id} has an empty post. Skipping influence; target_id: ", self.id)
-            return
+            return False
 
         # ----------------------------------------------------------
         # 2. Prepare source message embedding
@@ -252,7 +259,7 @@ class LLMSocialAgent(NetworkAgent):
         if source_agent.post_embedding is None: 
             source_agent.post_embedding = self._get_embedding(source_agent.post)
             #print(f"WARNING: source Agent {source_agent.id} has no valid post embedding. Skipping influence. target_id:", self.id)
-            return
+            return False
 
         # ----------------------------------------------------------
         # 3. Prepare target profile embedding
@@ -354,10 +361,16 @@ class LLMSocialAgent(NetworkAgent):
         return self.emerged
 
     def infection(self, agents, period,diffusion_events, message_events, source_agent):
+        self.save_message_event(message_events, period, source_agent, influence_prob, 0,
+        0, 0, old_profile, self.profile_embedding,
+        "", "", source_agent.post, source_agent.post_embedding,"","", target_stance_before,
+        target_stance_after, self.emerged)
+        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, self.emerged)
+
         if self.id == source_agent.id:
             print("initial return, same id,  target_id: ", self.id); 
             return False
-
+        print("Is Imarged? ",self.emerged, " id: ", self.id); #return False
         source_post = source_agent.post
         if not source_post or not str(source_post).strip():
             print("initial return, !post, target_id: ", self.id);
@@ -385,13 +398,14 @@ class LLMSocialAgent(NetworkAgent):
         self.received_message_history.append(source_post)
         decision = accept_message(source_post, self.profile, self.received_message_history)
         decision = str(decision).strip().upper()
+        self.save_message_event(message_events, period, source_agent, influence_prob, 0,
+        0, 0, old_profile, self.profile_embedding,
+        "", "", source_agent.post, source_agent.post_embedding,"","", target_stance_before,
+        target_stance_after, decision)
+        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, decision)
         if "REJECT" in decision or "ACCEPT" not in decision:
-            self.save_message_event(message_events, period, source_agent, influence_prob, 0,
-            0, 0, old_profile, self.profile_embedding,
-            "", "", source_agent.post, source_agent.post_embedding,"","", target_stance_before,
-            target_stance_after, self.emerged)
-            self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, self.emerged)
-            print("Decision: ", decision, "target_id: ", self.id);return False
+            print("Decision: ", decision, "target_id: ", self.id); return False
+        #print("Decision: ", decision, "target_id: ", self.id);return False
         #elif "Accept" in decision:
         #   print("Message Accepted: ",decision)
         # Internalize and respond to the received message
@@ -413,10 +427,10 @@ class LLMSocialAgent(NetworkAgent):
         if new_profile is None:
             new_profile = old_profile
 
-        self.save_message_event(message_events, period, source_agent, influence_prob, 0,
-            0,0 ,old_profile, self.profile_embedding,
-            new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
-            generated_post_embedding, target_stance_before, target_stance_after, self.emerged)
+        #self.save_message_event(message_events, period, source_agent, influence_prob, 0,
+        #     0,0 ,old_profile, self.profile_embedding,
+        #     new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
+        #     generated_post_embedding, target_stance_before, target_stance_after, self.emerged)
         # Detect emergence from observable changes
         post_changed = (
             generated_post is not None
@@ -440,6 +454,9 @@ class LLMSocialAgent(NetworkAgent):
         print("Final emerged, saved, return, target_id: ", self.id);
         #return False 
         self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, self.emerged)
+        self.save_message_event(message_events, period, source_agent, influence_prob, 0, 0,0 ,old_profile, self.profile_embedding,
+             new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
+             generated_post_embedding, target_stance_before, target_stance_after, self.emerged)
         # Record events here using your existing event methods.
         # Ensure estimated shifts and behavior are defined first.
 

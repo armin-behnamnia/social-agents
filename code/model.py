@@ -167,9 +167,9 @@ class LLMModel(Model):
         print("Simulation finished.", flush=True)
 
     def run(self, method=""):
-        self.initialisation()
-        self.run_stance_aware( method="stance_aware", k=1)
-        self.run_exposure( method="", k=1)
+        self.initialisation(); m=2
+        self.run_stance_aware( method="stance_aware", k=m)
+        self.run_exposure( method="", k=m)
           
     def load_agent_profiles(self):
         user_profiles = []

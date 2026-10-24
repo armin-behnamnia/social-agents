@@ -220,62 +220,129 @@ class LLMEnvironment(Environment):
                 # Skip already processed nodes
                 if target_id in processed:
                     continue
-
                 target_agent.exposure_count += 1
-                if target_agent.exposure_count > k: continue
+                if target_agent.emerged: continue
                 # if source_agent.stance < 0:
                 #     self.select_post(source_agent, target_agent)
-                target_agent.infection_stance_aware(agents,period,self.diffusion_events,self.message_events,source_agent)
-                self.update_observer(target_agent, period)
-                # Newly infected targets can spread information too
-                queue.append(target_agent)
+                emerged = target_agent.infection_stance_aware(agents,period,self.diffusion_events,self.message_events,source_agent)
+                if emerged: 
+                    self.update_observer(target_agent, period)
+                    # Newly infected targets can spread information too
+                    queue.append(target_agent)
 
         print(f"Processed nodes: {len(processed)}")
         print(f"Total diffusion events: {len(self.diffusion_events)}")
         # At the end preference_stance target nodes should change to 0 and for the next run should k be 2.
 
+    from collections import deque
+
     def agents_infection(self, agents, period: int, k=1):
         print(f"\n===== PERIOD {period} =====\n")
 
-        queue = deque(
-            a for a in agents
-            if a.preference_state == 1 and a.stance <= 0
-        )
-        queued = {id(a) for a in queue}
-        processed = set()
+        # Initialize persistent queue once
+        if not hasattr(self, "_infection_queue"):
+            self._infection_queue = deque()
+            self._infection_queue_ids = set()
 
-        while queue:
-            source = queue.popleft()
-            sid = id(source)
-            queued.discard(sid)
+            for agent in agents:
+                if agent.preference_state == 1 and agent.stance <= 0:
+                    aid = id(agent)
+                    if aid not in self._infection_queue_ids:
+                        self._infection_queue.append(agent)
+                        self._infection_queue_ids.add(aid)
 
-            if sid in processed:
+        # Snapshot of infection status at the beginning of this period
+        infected_at_start = {
+            id(agent)
+            for agent in agents
+            if agent.preference_state == 1
+        }
+
+        # Process sources that were queued before this period
+        current_sources = list(self._infection_queue)
+        self._infection_queue.clear()
+        self._infection_queue_ids.clear()
+
+        for source in current_sources:
+
+            if source.preference_state != 1 or source.stance > 0:
                 continue
-            processed.add(sid)
 
             for _, neighbor_id in source.network.get_neighbors(source):
                 target = agents.get_agent(neighbor_id)
-                tid = id(target)
 
-                if tid in processed or target.preference_state == 1: continue
+                if target is None:
+                    continue
+
+                # Only target nodes that were uninfected at period start
+                if id(target) in infected_at_start:
+                    continue
 
                 target.exposure_count += 1
 
-                #if target.exposure_count < k: continue
-                #if source.stance<0:
-                #    self.select_post(source, target)
-                emerged = target.infection(agents, period, self.diffusion_events, self.message_events, source)
+                # if target.exposure_count < k:
+                #    continue
+
+                emerged = target.infection(
+                    agents,
+                    period,
+                    self.diffusion_events,
+                    self.message_events,
+                    source
+                )
 
                 if emerged:
                     self.update_observer(target, period)
- 
-                    if tid not in queued:
-                        queue.append(target)
-                        queued.add(tid)
 
-        print(f"Processed nodes: {len(processed)}")
-        print(f"Total diffusion events: {len(self.diffusion_events)}")
+        # Rebuild queue for the next period
+        for source in current_sources:
+            if source.preference_state != 1 or source.stance > 0:
+                continue
 
+            has_uninfected_neighbor = any(
+                (target := agents.get_agent(neighbor_id)) is not None
+                and target.preference_state != 1
+                for _, neighbor_id in source.network.get_neighbors(source)
+            )
+
+            if has_uninfected_neighbor:
+                sid = id(source)
+                if sid not in self._infection_queue_ids:
+                    self._infection_queue.append(source)
+                    self._infection_queue_ids.add(sid)
+
+        # Add newly infected agents as sources for the next period
+        for agent in agents:
+            if (
+                id(agent) not in infected_at_start
+                and agent.preference_state == 1
+                and agent.stance <= 0
+            ):
+                aid = id(agent)
+                if aid not in self._infection_queue_ids:
+                    self._infection_queue.append(agent)
+                    self._infection_queue_ids.add(aid)
+
+        total_agents = len(agents)
+        infected_agents = sum(
+            1 for agent in agents
+            if agent.preference_state == 1
+        )
+
+        print(f"Infected: {infected_agents}/{total_agents}")
+        print(f"Sources queued for next period: {len(self._infection_queue)}")
+
+        if infected_agents == total_agents:
+            print("All agents are infected. Diffusion completed.")
+            self._infection_queue.clear()
+            self._infection_queue_ids.clear()
+            return True
+
+        if not self._infection_queue:
+            print("Diffusion stalled: no eligible sources remain.")
+            return False
+
+        return False
     def calc_population_infection_state(self, agents: "AgentList[LLMSocialAgent]"):
         self.setup()
         for agent in agents:
