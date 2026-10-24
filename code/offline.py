@@ -69,6 +69,14 @@ def install() -> None:
             "judge", message, target_profile
         )
     )
+    # Melodie-mechanism accept gate: mostly-accepting deterministic stub.
+    LLM_module.accept_message = (
+        lambda post, profile, history=None: (
+            "ACCEPT"
+            if _hash01("accept", str(post), str(profile)) < 0.7
+            else "REJECT"
+        )
+    )
 
 
 def uninstall() -> None:

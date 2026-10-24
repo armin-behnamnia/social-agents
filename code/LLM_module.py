@@ -438,3 +438,60 @@ def judge_persuasiveness(message: str, target_profile: str) -> float:
         value = float(match.group())
         return min(max(value / 10.0, 0.0), 1.0)
     return 0.5  # unparseable judge output: neutral
+
+
+_ACCEPT_REJECT_PROMPT = """You are a target user in a social network. Your task is to decide whether to ACCEPT or REJECT an incoming message.
+
+Message:
+{post}
+
+Your Profile:
+{profile}
+
+Previously Observed Messages:
+{history}
+
+Evaluate the message by considering its relevance to your interests, goals, preferences, and concerns; the value and credibility of its content; and your previous exposure to similar messages.
+
+Weigh the evidence supporting acceptance against the evidence supporting rejection. Consider all available information and determine which decision is more strongly supported overall.
+
+You MUST make a decision. Choose ACCEPT if the reasons supporting acceptance outweigh the reasons supporting rejection. Choose REJECT if the reasons supporting rejection outweigh the reasons supporting acceptance.
+
+Do not automatically reject a message because of uncertainty, disagreement, or previous exposure. Do not automatically accept a message simply because it is relevant to your profile. Select the outcome that is dominant based on the overall evidence.
+
+ACCEPT means that you are willing to receive and consider the message; it does not necessarily mean that you agree with it or change your stance.
+
+Return exactly one word: ACCEPT or REJECT. Do not provide explanations or any additional text."""
+
+
+def accept_message(
+    source_post: str,
+    target_profile: str,
+    observed_history: list | None = None,
+) -> str:
+    """LLM accept/reject gate from the Melodie mechanisms (imported
+    verbatim from the colleague's `accept_message`, now on the hardened
+    call layer: retries, cache, deterministic low temperature instead of
+    0.8). Returns exactly "ACCEPT" or "REJECT"; an unparseable reply is
+    treated as REJECT (their semantics).
+
+    `observed_history` accepts raw message strings (their convention) or
+    our history dicts ({"text"/"message": ...}).
+    """
+    texts: list[str] = []
+    for item in observed_history or []:
+        if isinstance(item, dict):
+            texts.append(str(item.get("text") or item.get("message") or ""))
+        else:
+            texts.append(str(item))
+    history = "\n".join(t for t in texts if t.strip()) or "(none)"
+    prompt = _ACCEPT_REJECT_PROMPT.format(
+        post=source_post, profile=target_profile, history=history
+    )
+    raw = call_llm(
+        prompt,
+        temperature=GLOBAL_LLM_CONFIG.inference_temperature,
+        max_tokens=16,
+    )
+    decision = str(raw).strip().upper()
+    return "ACCEPT" if decision.startswith("ACCEPT") else "REJECT"

@@ -44,7 +44,11 @@ def build_env(cfg: PPOConfig, observer_inference: bool = False,
               obs_mode: str = "matrix",
               judge_fn=None,
               align: str = "none",
-              goal_delta: bool = False) -> ElitePersuaderEnv:
+              goal_delta: bool = False,
+              mechanism: str = "paper",
+              mech_beta_init: bool = False,
+              mech_target_positive_only: bool = False,
+              reward_adoption_bonus: float = 0.0) -> ElitePersuaderEnv:
     scenario = LLMScenario(
         agent_num=cfg.agent_num,
         # Observer-side inference (Prompt 5) is not used by the RL
@@ -70,6 +74,10 @@ def build_env(cfg: PPOConfig, observer_inference: bool = False,
         persuade_all_neighbors=cfg.persuade_all_neighbors,
         n_persuaders=cfg.n_persuaders,
         judge_fn=judge_fn,
+        mechanism=mechanism,
+        mech_beta_init=mech_beta_init,
+        mech_target_positive_only=mech_target_positive_only,
+        reward_adoption_bonus=reward_adoption_bonus,
     )
 
 
@@ -382,6 +390,32 @@ def main() -> int:
         help="episodes per paired evaluation",
     )
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--mechanism", choices=["paper", "cascade", "exposure"],
+        default="paper",
+        help="transition dynamics: the paper's original sim (default), "
+             "or the colleague's two Melodie mechanisms ported in "
+             "code/mech_sim.py — 'cascade' = stance-aware within-period "
+             "BFS, 'exposure' = stance-less persistent queue with an "
+             "LLM accept/reject gate",
+    )
+    parser.add_argument(
+        "--mech-beta-init", action="store_true",
+        help="mechanism modes only: initialize crowd stances from the "
+             "colleague's Beta mixture (60%% Beta(6,2) support / 40%% "
+             "-Beta(8,2) oppose) instead of the constant +0.65",
+    )
+    parser.add_argument(
+        "--mech-positive-only", action="store_true",
+        help="mechanism modes only: restrict targets to positive-stance "
+             "agents (paper-mode rule; default off = faithful to the "
+             "original code, which has no positivity gate)",
+    )
+    parser.add_argument(
+        "--reward-adoption-bonus", type=float, default=0.0,
+        help="flat reward per persuader-sourced adoption; recommended "
+             ">0 for exposure mode where stance deltas are zero",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -516,6 +550,10 @@ def main() -> int:
         judge_fn=judge_fn,
         align=args.align,
         goal_delta=args.goal_delta,
+        mechanism=args.mechanism,
+        mech_beta_init=args.mech_beta_init,
+        mech_target_positive_only=args.mech_positive_only,
+        reward_adoption_bonus=args.reward_adoption_bonus,
     )
     trainer = PPOTrainer(
         env,
@@ -527,6 +565,10 @@ def main() -> int:
             judge_fn=judge_fn,
             align=args.align,
             goal_delta=args.goal_delta,
+            mechanism=args.mechanism,
+            mech_beta_init=args.mech_beta_init,
+            mech_target_positive_only=args.mech_positive_only,
+            reward_adoption_bonus=args.reward_adoption_bonus,
         ),
     )
     print(f"[*] training on device: {trainer.device}; "

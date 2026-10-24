@@ -312,6 +312,39 @@ end-to-end smoke run reported `id=15, text=0, none=0` (zero fallbacks), and
     Served on port 3009; runs are episodes of already-run campaign-6
     experiments (baseline run 8, judge + goal-δ run 9). Report section in
     `report/index_2.html` (`report/build_report.py index_2.html`).
+18. [x] **Wrap the colleague's two simulation mechanisms as RL envs**
+    (merged via PR #3 `ShaghayeghNajari-patch-3` + follow-up uploads;
+    their Melodie originals preserved under `code/melodie/`):
+    - `code/mech_sim.py` — `MechanismSim(Simulation)` with
+      `mechanism="cascade"` (their `agents_infection_stance_aware`:
+      within-period BFS, stance pull ×susceptibility, LLM
+      internalization chain, emergence = observable post/profile change)
+      and `mechanism="exposure"` (their `agents_infection`: persistent
+      cross-period source queue, NO stance dynamics, LLM
+      `accept_message` ACCEP/REJECT gate, emergence = adoption, next-
+      period sources must have stance ≤ 0). Same event schema as paper
+      mode → reward/judge/fit-alphas tooling works unchanged.
+      Deviations from the original documented in the module docstring
+      (MELFIX 1–5). `beta_stance_init()` ports their Beta(6,2)/Beta(8,2)
+      60/40 stance init.
+    - `LLM_module.accept_message` — their accept-gate prompt verbatim on
+      our hardened call layer; stubbed in `code/offline.py`.
+    - `ElitePersuaderEnv(mechanism=..., mech_beta_init=...,
+      mech_target_positive_only=..., reward_adoption_bonus=...)` — opt-in;
+      default "paper" untouched. Shaping accept count includes "emerge";
+      flat per-adoption bonus added for stance-less (exposure) dynamics.
+    - `train_persuader --mechanism/--mech-beta-init/--mech-positive-only/
+      --reward-adoption-bonus`.
+    - Tests: 16 new (queue semantics, BFS-within-period, frozen stances
+      in exposure mode, beta-init gating consequence, env integration);
+      103/103 total pass. Mock-mode smoke runs train end-to-end on both
+      mechanisms (live smoke blocked: the shared chat endpoint
+      transiently lost its model registration, 2026-10-24; embeddings
+      API unaffected).
+    Open training-design questions are in RESULTS.md §E (stance init,
+    reward spec for the stance-less regime, observation source,
+    LLM-call cost of the internalization chain, action semantics, α
+    constants).
 
 ## Sequencing
 1. **C** first (cheap, removes a silent failure mode; no behavior change on the

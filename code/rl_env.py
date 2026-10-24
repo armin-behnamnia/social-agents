@@ -87,6 +87,10 @@ class ElitePersuaderEnv:
         persuader_persuasiveness: bool = True,
         n_persuaders: int = 1,
         judge_fn=None,
+        mechanism: str = "paper",
+        mech_beta_init: bool = False,
+        mech_target_positive_only: bool = False,
+        reward_adoption_bonus: float = 0.0,
     ):
         self.scenario = scenario or LLMScenario()
         self.n_periods = n_periods
@@ -132,6 +136,18 @@ class ElitePersuaderEnv:
         self._id_cache: dict[tuple[int, int], float] = {}
         self._judge_hits = 0
         self._judge_fallbacks = 0
+
+        # Imported colleague mechanisms (code/mech_sim.py): "paper" keeps
+        # the original Simulation; "cascade"/"exposure" run the two
+        # Melodie-ported propagation regimes. Purely additive opt-in.
+        if mechanism not in ("paper", "cascade", "exposure"):
+            raise ValueError(f"unknown mechanism {mechanism!r}")
+        self.mechanism = mechanism
+        self.mech_beta_init = bool(mech_beta_init)
+        self.mech_target_positive_only = bool(mech_target_positive_only)
+        # Flat reward per persuader-sourced adoption. Essential in
+        # exposure mode (no stance deltas there); optional elsewhere.
+        self.reward_adoption_bonus = float(reward_adoption_bonus)
 
         # Track B: goal-alignment a(m) for rendered messages (optional).
         from .goal_align import get_align_fn
@@ -204,6 +220,26 @@ class ElitePersuaderEnv:
                     else self._episode_seed
                 ),
             )
+        if self.mechanism != "paper":
+            from .mech_sim import MechanismSim, beta_stance_init
+
+            initial_stances = None
+            if self.mech_beta_init:
+                # Their population: 60% support ~Beta(6,2), 40% oppose
+                # ~-Beta(8,2); the persuader seeds are still stamped -1
+                # by _seed_agents afterwards.
+                initial_stances = beta_stance_init(
+                    scenario.agent_num, seed=scenario.rng_seed
+                )
+            return MechanismSim(
+                scenario=scenario,
+                topology=self.topology,
+                initial_stances=initial_stances,
+                profiles=profiles,
+                seed_ids=self.persuader_ids,
+                mechanism=self.mechanism,
+                target_positive_only=self.mech_target_positive_only,
+            )
         return Simulation(
             scenario=scenario,
             topology=self.topology,
@@ -222,12 +258,18 @@ class ElitePersuaderEnv:
         agents so the episode continues.
         """
         assert self._sim is not None
+        # Mechanism modes influence any non-adopted neighbor (their code
+        # has no positivity gate); paper mode keeps its positive-stance
+        # rule. `mech_target_positive_only` restores the gate if wanted.
+        any_stance = (
+            self.mechanism != "paper" and not self.mech_target_positive_only
+        )
         eligible = [
             a
             for a in self._sim.agents
             if a.id not in self.persuader_ids
             and a.preference_state == 0
-            and a.stance > 0
+            and (a.stance > 0 or any_stance)
         ]
         if not eligible:
             return []
@@ -283,11 +325,14 @@ class ElitePersuaderEnv:
         """
         assert self._sim is not None
         self._pending_targets = []
+        any_stance = (
+            self.mechanism != "paper" and not self.mech_target_positive_only
+        )
         eligible_all = [
             a for a in self._sim.agents
             if a.id not in self.persuader_ids
             and a.preference_state == 0
-            and a.stance > 0
+            and (a.stance > 0 or any_stance)
         ]
         for pid in self.persuader_ids:
             me = self._sim.agents[pid]
@@ -621,15 +666,23 @@ class ElitePersuaderEnv:
         events = sim.diffusion_events[events_before:]
         rewards = np.zeros(self.n_persuaders, dtype=np.float64)
         n_accept = np.zeros(self.n_persuaders, dtype=int)
+        n_adopt = np.zeros(self.n_persuaders, dtype=int)
         for event in events:
             src = event["source_agent"]
             if src in self._persuader_index:
                 i = self._persuader_index[src]
                 delta = event["target_delta_stance"]
                 rewards[i] += -delta  # negative delta = toward persuader
-                if event["behavior"] == "accept":
+                # "emerge" is the cascade mode's acceptance-equivalent
+                # event; "accept" covers paper mode and exposure mode.
+                if event["behavior"] in ("accept", "emerge"):
                     n_accept[i] += 1
+                if event["behavior"] in ("accept", "emerge", "adopt") and event[
+                    "adopted"
+                ]:
+                    n_adopt[i] += 1
         rewards += self.shaping_accept_bonus * n_accept
+        rewards += self.reward_adoption_bonus * n_adopt
         rewards -= self.message_cost
 
         # optional goal-alignment shaping: λ·a(m) per delivered message
@@ -656,6 +709,7 @@ class ElitePersuaderEnv:
         obs = self._observation()
         info = {
             "period": sim.period,
+            "mechanism": self.mechanism,
             "mean_stance": float(sim.stances().mean()),
             "n_adopted": int(sum(a.preference_state == 1 for a in sim.agents)),
             "n_persuader_events": len(

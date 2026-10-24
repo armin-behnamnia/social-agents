@@ -671,3 +671,53 @@ TypeScript pipeline (`loadSimulationData` → `processSimulationData` →
 exported CSVs: both runs load 50 agents, build the expected edges, and
 compute all 8 metric blocks without error; `next build` type-checks the
 integration patch. Raw data is committed under `report/dashboard/`.
+
+## E. Colleague mechanisms wrapped as RL environments (prep, no campaign yet)
+
+The Melodie reimplementation (PR #3) ships **two propagation
+mechanisms**, now ported onto our core as `MechanismSim`
+(`code/mech_sim.py`) and selectable via
+`train_persuader --mechanism {paper,cascade,exposure}`:
+
+| | `cascade` (stance-ful) | `exposure` (stance-less) |
+|---|---|---|
+| source rule | adopted AND stance ≤ 0 | adopted AND stance ≤ 0 |
+| per-period spread | BFS — emerged nodes re-queued **same period** | persistent queue — new adopters spread **next period** only |
+| stance dynamics | pull × influence × susceptibility (0.2 in their config; ours parameterizes) | **none** (frozen forever) |
+| acceptance | none — every exposure runs the LLM internalization chain | LLM `accept_message` ACCEPT/REJECT gate |
+| adoption | emergence = observable post/profile change | emergence, then preference_state=1 |
+| RL reward channel | stance deltas + emerge shaping + judge λ·a(m) (goal-δ hook live) | **Δs ≡ 0** → adoption bonus + accept shaping + judge only |
+
+Both modes retrain end-to-end through the PPO stack (mock-mode smoke,
+2×6 episodes, passed); 16 new pinning tests; defaults unchanged.
+
+**Consequences for training before we launch a campaign** — the
+open design questions:
+
+1. **Population stance init.** Faithful = their Beta(6,2)/-Beta(8,2)
+   60/40 mix (`--mech-beta-init`). Exposure mode mathematically *stalls*
+   with our all-positive init (proven by test): adopters stay positive
+   and the next-period queue only admits stance ≤ 0. So exposure runs
+   need beta init (or a "adoption stamps stance −1" rule, which is NOT
+   in their code — we'd be inventing dynamics).
+2. **Reward for the stance-less regime.** No stance deltas exist, so
+   Track-B goal-δ is a no-op there; `--reward-adoption-bonus` +
+   accept shaping + judge λ·a(m) must carry the signal. Value to set
+   empirically (proposed start: bonus 1.0, shaping 0.05).
+3. **Observation source.** Their observer is a particle filter over
+   *observable* histories; ours reads true latent stance. v1 keeps
+   true-state obs (ablation lever); a faithful run should report both.
+4. **LLM-call cost.** Cascade internalization = 3 calls per exposure;
+   within-period BFS can make this deep. Cached + deterministic
+   estimator temperature mitigates; `--mode mock` smoke passes. A full
+   300×32 campaign will need the cache-warmup step and probably
+   `--n-periods` unchanged.
+5. **Action semantics.** The persuader controls only its seed message
+   content; organic re-sharing is endogenous LLM internalization — the
+   message mutates hop-to-hop. That's the realization of their
+   `RL_Generative` TODO, and makes multi-hop credit assignment
+   (cascade discount) materially more important than in paper mode.
+6. **Their α's differ**: 0.20 each (plus a fifth unused
+   `alpha_degree_stance`) vs our 0.25. Keep ours for comparability;
+   note in any paper comparison.
+
