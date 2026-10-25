@@ -112,6 +112,46 @@ def exported(tmp_path):
     return info, sidecar
 
 
+# --- a frozen-stance episode: the imported `exposure` mechanism ----------
+# Stances are identical at every snapshot and every increment is 0.0, yet
+# agents still adopt (the flip is behavioural). This is what run 11 looks
+# like, and the panel must not promise stance movement it cannot show.
+FROZEN_STANCE_ROW = [0.5, -0.6, -0.4, 0.2, 0.5, -0.1]
+FROZEN_STANCES = [list(FROZEN_STANCE_ROW) for _ in STANCES]
+FROZEN_EVENTS = [
+    [],
+    [{"source": 0, "target": 2, "delta_stance": 0.0, "behavior": "accept",
+      "adopted": True, "from_persuader": True}],
+    [{"source": 2, "target": 5, "delta_stance": 0.0, "behavior": "accept",
+      "adopted": True, "from_persuader": False}],
+]
+FROZEN_ADOPTED = [[], [2], [2, 5]]
+
+
+def _frozen_trajectory() -> dict:
+    traj = _trajectory()
+    for i, period in enumerate(traj["periods"]):
+        period["events"] = FROZEN_EVENTS[i]
+        period["after"]["stances"] = FROZEN_STANCES[i]
+        period["after"]["adopted"] = FROZEN_ADOPTED[i]
+    traj["final_adopted"] = len(FROZEN_ADOPTED[-1])
+    return traj
+
+
+@pytest.fixture()
+def frozen_exported(tmp_path):
+    """Export a frozen-stance trajectory and return (info, sidecar)."""
+    traj_path = tmp_path / "trajectory.json"
+    traj_path.write_text(json.dumps(_frozen_trajectory()))
+    info = export(traj_path, tmp_path / "data", run_file_num=43,
+                  label="frozen", profile_seed=1234,
+                  campaign_hashtag="#PolicyAlert", write_personas=True)
+    sidecar = json.loads(
+        (tmp_path / "data" / "v1" / "43"
+         / "agent_variables_50_repub_43.json").read_text())
+    return info, sidecar
+
+
 class TestSidecarShape:
     def test_all_three_files_written(self, exported, tmp_path):
         info, _ = exported
@@ -254,6 +294,49 @@ class TestDescriptions:
         assert by_key["stance"]["chart"] is True
         assert by_key["adopted"]["chart"] is False
         assert by_key["stance"]["kind"] == "continuous"
+
+
+class TestFrozenStanceWording:
+    """The panel's wording has to match the series it describes.
+
+    In the imported `exposure` mechanism the stance update is skipped
+    outright, so a description that says the stance "moves by the judged
+    increment" would promise movement the file cannot show.
+    """
+
+    def test_frozen_episode_says_the_stance_is_fixed(self, frozen_exported):
+        _, side = frozen_exported
+        by_key = {v["key"]: v for v in side["variables"]}
+        stance = by_key["stance"]["description"]
+        assert "FIXED" in stance
+        assert "no stance dynamics" in stance
+        assert "Mutable" not in stance
+
+    def test_frozen_episode_says_nothing_was_pushed(self, frozen_exported):
+        _, side = frozen_exported
+        by_key = {v["key"]: v for v in side["variables"]}
+        assert "Always 0" in by_key["influence_cum"]["description"]
+
+    def test_frozen_episode_really_has_flat_stances(self, frozen_exported):
+        _, side = frozen_exported
+        for agent in side["agents"].values():
+            assert len(set(agent["series"]["stance"])) == 1
+            assert agent["series"]["influence_cum"] == [0, 0, 0]
+        # ...and still adopts, so the panel is not just describing a no-op
+        assert any(a["series"]["adopted"][-1] for a in side["agents"].values())
+
+    def test_every_variable_is_documented_when_frozen(self, frozen_exported):
+        _, side = frozen_exported
+        for var in side["variables"] + side["static_variables"]:
+            assert var["key"] and var["label"]
+            assert len(var["description"].strip()) > 40, var["key"]
+
+    def test_moving_episode_keeps_the_mutable_wording(self, exported):
+        _, side = exported
+        by_key = {v["key"]: v for v in side["variables"]}
+        assert "Mutable" in by_key["stance"]["description"]
+        assert "FIXED" not in by_key["stance"]["description"]
+        assert "Always 0" not in by_key["influence_cum"]["description"]
 
 
 class TestCsvHygiene:

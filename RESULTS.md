@@ -717,7 +717,25 @@ dashboard's already-stale `__tests__`, and adds **no** failures to its
 suite (pristine: 46 failed / 107 passed; patched: 46 / 112).
 
 Run 10 (C7 cascade) and run 11 (C8 exposure) are selectable in the
-dashboard's run dropdown; see §F for what they show.
+dashboard's run dropdown; see §F for what they show. Run 11 is **verified
+against its own trajectory**: the cumulative counters equal the event log
+(nothing dropped or double-counted), no agent is exposed to itself, the
+`stance` series equals the recorded snapshot at every iteration (max
+deviation 5e-5 — the 4-decimal rounding), and
+`stance[p] = stance[p-1] + Σ deltas@p` holds for 50/50 agents. Both runs
+currently ship from a mid-campaign checkpoint (run 10 @ iteration 20, run
+11 @ iteration 10) and are re-recorded from the final policies when the
+campaign ends.
+
+**The wording follows the data.** `exposure` freezes stances outright
+(§F.2), so the generic "mutable, moves by the judged increment" text would
+promise movement the series cannot show.
+`code/export_dashboard.py` therefore infers whether an episode moved any
+stance at all — no non-zero increment *and* every stance flat — and words
+`stance` / `adopted` / `exposure_cum` / `influence_cum` to match: run 11
+reads "held FIXED for the whole episode … What changes in this arm is
+behaviour, not opinion", run 10 is unchanged. Five tests pin both branches
+(`code/tests/test_export_dashboard.py`, 27 tests).
 
 ## E. Colleague mechanisms wrapped as RL environments (prep, no campaign yet)
 
@@ -999,13 +1017,26 @@ separate experiment, not a patch to this one.
 
 ## F.2 C8 exposure: the multi-period structure is alive (preliminary)
 
-Three iterations in, `mean_adopted ≈ 15–18 of 50` and `mean_final_stance ≈
-+0.01…+0.03` (reward ≈ 14 on its own scale: +1.0 per persuader-sourced
-adoption, +0.05 accept shaping, λ=0.2 judge). By construction it has no
-stance dynamics — adoption moves through a **persistent cross-period
+Eleven iterations in, `mean_adopted` moves between **13.5 and 18.6 of 50**
+(reward ≈ 14 on its own scale: +1.0 per persuader-sourced adoption, +0.05
+accept shaping, λ=0.2 judge). By construction the arm has **no stance
+dynamics at all** — adoption moves through a **persistent cross-period
 queue** gated by an LLM accept decision — so unlike C7 it uses all ten
 periods. This is the arm where the multi-period RL problem actually
 exists.
+
+**Do not read `mean_final_stance` as progress in this arm.** Stances are
+frozen, so the only way that sentence can move is if the episode's stance
+*draw* moves: the trainer averages 32 episodes per iteration, each
+initialised from `beta_stance_init` under its own RNG state, so the
+`+0.011 … +0.030` seen over eleven iterations is the noise of a redraw, not
+something the policy did. The recorded run-11 episode makes the point
+exactly: across its 78 influences **not one carries a non-zero increment**,
+all 50 agents hold their `t0` stance through all eleven snapshots
+(population mean `-0.024 → -0.024`), and adoption still spreads over
+periods 1–10, ending at 9/50. So the learning signal here is
+`mean_adopted` and the reward; the stance series is a constant — and as of
+§D.1 the node panel says so instead of implying motion.
 
 **Reading the two arms together.** They are not directly comparable:
 different adoption rules, different reward scales, and C7's reward is

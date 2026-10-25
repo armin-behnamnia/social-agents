@@ -232,6 +232,57 @@ _STATIC_VARIABLES = [
     },
 ]
 
+# The imported `exposure` mechanism has NO stance dynamics at all -- its
+# stance update is literally skipped ("FROZEN: no stance update" in
+# `code/mech_sim.py::_expose_exposure`). There, an adoption is a purely
+# behavioural flip (an LLM ACCEPT), and a stance never moves. A panel that
+# described `stance` as "mutable, moves by the judged increment" would then
+# promise movement the series cannot show, so the wording follows the data:
+# if no influence in the episode carries a non-zero increment and every
+# stance series is flat, the agent's stance was fixed for the whole run and
+# the panel says so.
+_FROZEN_DESCRIPTIONS = {
+    "stance": (
+        "The agent's opinion position on the policy, held FIXED for the "
+        "whole episode: the imported exposure mechanism has no stance "
+        "dynamics, so this is the agent's initial position and it does not "
+        "move. What changes in this arm is behaviour, not opinion -- see "
+        "'Adopted' and 'Influences received'."
+    ),
+    "adopted": (
+        "1 once the agent has accepted an influence and flipped its "
+        "preference state to the persuaders' side. In the exposure "
+        "mechanism the trigger is an LLM ACCEPT decision (there is no "
+        "stance threshold to cross). Sticky: once 1 it stays 1 for the "
+        "rest of the episode, so this is 'has ever adopted', not 'adopted "
+        "this period'."
+    ),
+    "exposure_cum": (
+        "How many influence events have reached this agent so far (from "
+        "persuaders or from other agents it is connected to). Each one is "
+        "a judged persuasion attempt, but in this mechanism it cannot move "
+        "the stance (frozen); it can only be accepted or not, and "
+        "acceptance is what flips 'Adopted'."
+    ),
+    "influence_cum": (
+        "Sum of the signed persuasion increments this agent has received. "
+        "Always 0 in this mechanism: the exposure mechanism has no stance "
+        "dynamics, so every increment is zero and no stance is ever "
+        "pushed."
+    ),
+}
+
+
+def _variables_for(stance_frozen: bool) -> list:
+    """Variable metadata, worded for whether stances actually move here."""
+    out = []
+    for var in _VARIABLES:
+        var = dict(var)
+        if stance_frozen and var["key"] in _FROZEN_DESCRIPTIONS:
+            var["description"] = _FROZEN_DESCRIPTIONS[var["key"]]
+        out.append(var)
+    return out
+
 
 def _write_agent_variables(out_dir: Path, run_file_num: int, label: str,
                            traj_path: Path, traj: dict, names, persuader_ids,
@@ -300,6 +351,16 @@ def _write_agent_variables(out_dir: Path, run_file_num: int, label: str,
             "received": received[aid],
         }
 
+    # Did stances move at all in this episode? (see _FROZEN_DESCRIPTIONS)
+    any_push = any(
+        abs(float(e.get("delta_stance") or 0.0)) > 1e-9
+        for per in periods for e in per["events"]
+    )
+    stance_frozen = not any_push and all(
+        len({round(stances[i][aid], 6) for i in iters}) == 1
+        for aid in range(n)
+    )
+
     payload = {
         "run": run_file_num,
         "label": label,
@@ -309,7 +370,7 @@ def _write_agent_variables(out_dir: Path, run_file_num: int, label: str,
         "iterations": iters,
         "iteration_labels": [p["after"].get("tag", f"t{i}")
                              for i, p in enumerate(periods)],
-        "variables": _VARIABLES,
+        "variables": _variables_for(stance_frozen),
         "static_variables": _STATIC_VARIABLES,
         "agents": agents,
     }
