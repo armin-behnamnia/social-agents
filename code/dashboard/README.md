@@ -195,8 +195,13 @@ Pinned to dashboard commit `9f913ee`:
 ## Verified
 
 - **Patch applies cleanly** to a pristine clone at the pinned commit and
-  is **type-clean** (`npx tsc --noEmit`) outside `__tests__/`; `next build`
-  previously type-checked the same patch.
+  is **type-clean** (`npx tsc --noEmit`) outside `__tests__/` — the errors
+  there (`toBeInTheDocument` etc.) predate the patch, and are identical
+  before and after.
+- **The production build passes**: on a pristine clone with the patch
+  applied, `next build` compiles, type-checks and exports the static site
+  (`output: 'export'` → `out/`), so the UI can also be served statically
+  rather than from `next dev`.
 - **No test regressions**: the upstream suite is already largely stale
   (pristine: 46 failed / 107 passed). With the patch: 46 failed /
   112 passed — i.e. exactly the 5 new passing tests, no new failures.
