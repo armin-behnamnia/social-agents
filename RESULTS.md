@@ -672,6 +672,53 @@ exported CSVs: both runs load 50 agents, build the expected edges, and
 compute all 8 metric blocks without error; `next build` type-checks the
 integration patch. Raw data is committed under `report/dashboard/`.
 
+## D.1 Node descriptions now show the simulation, not just the tweets
+
+Clicking a node used to describe tweet traffic only (followers, tweets,
+replies): the dashboard's schema has no opinion variables, so nothing on
+screen said what the simulation is *about* — above all an agent's current
+stance. Two changes fix that (both additive; runs without the new file are
+unaffected):
+
+1. **`code/export_dashboard.py`** also writes
+   `public/data/v1/<n>/agent_variables_50_repub_<n>.json`: one record per
+   agent holding a *time series per variable* (index `i` = the population
+   snapshot after period `i`, i.e. dashboard iteration `i`, so
+   `series[currentIteration]` is what the timeline is showing) plus the log
+   of influences that reached it. Six series — `stance`, `adopted`,
+   `exposure_cum`, `influence_cum` (signed), `from_persuader_cum`,
+   `adopt_events_cum` — and five statics (`role`, `degree`,
+   `initial_stance`, `leaning`, `profile`). **Every variable carries a
+   non-empty `description`**, which is what the panel's hover titles and
+   the panel's own footer refer to.
+2. **`code/dashboard/llmxio_integration.patch`** (pinned to dashboard
+   `9f913ee`) patches `AgentInspector` to fetch and render it: the
+   **current stance** large and colour-coded (red = supports the policy,
+   blue = aligned with the persuaders — same convention as
+   `code/visualize.py`), with a sparkline of the whole trajectory, a
+   marker at the iteration on screen, and `Δ` since `t0`; then the other
+   variables at that iteration with label/unit; the agent's static
+   context; and the received-influence log (who, when, the stance shift,
+   the behaviour, whether it came from a persuader). A missing file
+   **404s and the panel does not render**, so the patch is inert on runs
+   it does not apply to.
+
+**Verified rather than asserted.** `code/tests/test_export_dashboard.py`
+(22 tests) pins the accounting on a synthetic trajectory: series lengths,
+cumulative counters summing to the event count (nothing dropped or
+double-counted), sticky adoption, `influence_cum` as the signed sum of
+deltas, no self-exposure, `from_persuader_cum` counting only persuader
+sources, and a description on every variable. On the real run 10 episode
+(C7 cascade, 50 agents × 11 iterations) we re-checked the same
+invariants against the trajectory itself. The patch adds 5 render tests
+(`__tests__/components/AgentInspectorVariables.test.tsx`), applies cleanly
+to a pristine clone at the pinned commit, is type-clean outside the
+dashboard's already-stale `__tests__`, and adds **no** failures to its
+suite (pristine: 46 failed / 107 passed; patched: 46 / 112).
+
+Run 10 (C7 cascade) and run 11 (C8 exposure) are selectable in the
+dashboard's run dropdown; see §F for what they show.
+
 ## E. Colleague mechanisms wrapped as RL environments (prep, no campaign yet)
 
 The Melodie reimplementation (PR #3) ships **two propagation
@@ -862,3 +909,100 @@ arms should finish in roughly the time one takes alone (local cost only:
 2 processes, ~5 GB, ~320 threads). For a *single* arm nothing helps
 except fewer/smaller calls. 64–96 workers remains the efficient
 operating point; 160 buys the same rate at higher latency.
+
+### §E.3 The parallel launch died on a 503 burst — and what now prevents it (2026-10-25)
+
+Running the two arms together at 160 workers each (320 threads) killed the
+campaign ~2 minutes in: the gateway answered **503 Service Unavailable**
+in a burst longer than the retry window, `call_llm` exhausted its 3
+attempts (~10 s of backoff) and raised `LLMError`, and the runner's
+`wait` returned. The failure is recorded in
+`output/mech_campaigns_parallel.log`; nothing was lost that a checkpoint
+could not recover, because both arms checkpoint every 10 iterations and
+`--resume`/`--resume-log` re-attach the curve.
+
+Three changes now stand between a 503 burst and a lost campaign
+(commits `8112b6f`, `4e2c5cd`):
+
+| change | why |
+|---|---|
+| env-tunable retries (`LLM_MAX_RETRIES=6`), backoff base 2 s, **capped** (30 s) and **jittered** in [0.5, 1.5) | the burst outlasted 3 attempts; lockstep retries from hundreds of workers are what *sustain* a 503 burst |
+| per-arm workers 160 → **96** (2 × 96 = 192 threads) | 320 was the load that provoked it; §E.2 says 96 costs almost nothing in throughput |
+| a bounded retry wrapper around each arm in `run_mech_campaigns.sh` (restart from the arm's own checkpoint, up to `MECH_MAX_ATTEMPTS`), with failure propagation | a crash now costs the work since the last checkpoint, not the campaign |
+
+Relaunch (`resume-cascade-parallel`): **C7 resumed** from its iteration-20
+checkpoint — its log was rewritten to `1…21` as designed (records ≥ the
+checkpoint are dropped and recomputed) — and **C8 started fresh**, since it
+had no checkpoint yet; its trace was truncated so iteration numbers cannot
+double-count. After the relaunch: ~40–50 calls/s aggregate, **0 failed
+attempts** in the first quarter hour.
+
+One cosmetic artifact, recorded for honesty: the *trace* is append-only on
+resume, so the crashed attempt's first ~10 decisions of iteration 21
+remain in `output/ppo_mech_cascade/live/trace/` ahead of the re-run's
+iteration 21. The training log itself is clean (the resume drops
+duplicates); the monitor groups by iteration, so it only makes that one
+iteration denser.
+
+# F. Mechanism campaign — first results (2026-10-25, running)
+
+## F.1 C7 cascade: the imported emergence rule collapses the cascade into one period
+
+The mechanism adopts a target when something *observable* changed
+(`code/mech_sim.py:244`, their rule):
+`emerged = post_changed or profile_changed`. But `_expose_cascade`
+regenerates both through the LLM internalisation chain
+(`generate_response_message` → `update_profile` → `generate_information`),
+and a generative backend almost always returns *something* different — so
+`emerged` is effectively **always true**, and a target flips on its first
+exposure. Because emerged targets also join the queue *within the same
+period* (`mech_sim.py:179`, their within-period BFS), adoption reaches the
+whole reachable component in **period 0**:
+
+| evidence | value |
+|---|---|
+| `mean_adopted` over the 22 iterations recorded so far | **50.0 / 50 every single iteration** |
+| `mean_final_stance`, same iterations | −0.032 … +0.004 (essentially unmoved) |
+| live trace, exposures by period (0-based) | **942 in period 0, 3 in period 1, 0 in periods 2–9** |
+| dashboard run 10 (same protocol, seed 900000) | 44 exposures in period 1, 1 in period 2, **0 after**; 50/50 adopted |
+
+**Consequence.** From period 1 on, every agent has `preference_state == 1`,
+so `_eligible_target` rejects everyone and `step()` does nothing:
+**periods 1–9 issue zero LLM calls and make zero decisions.** The
+multi-period diffusion problem is degenerate. What the policy can still
+affect is its *first-period* strategy choice — 5 persuaders acting into a
+fresh network — which is where the iteration-to-iteration reward movement
+(0.969 → 1.343 over 22 iterations) comes from: the reward keeps a judge
+term (`train_judge.mean ≈ 0.70`, `n = 195` decisions/iteration), and that
+term varies. The rest of the action space is inert.
+
+This is *not* a port defect — it is their rule (emergence = any observable
+change) meeting a backend that always emits text; the faithful port is
+what makes the collapse visible. Two ways forward, and they mean different
+things:
+
+- **(a) keep C7 as a single-round persuasion-quality benchmark.** It is
+  honest (we report only period-0 behaviour) and cheap: only period 0
+  spends gateway calls, so C7 now costs a fraction of C8.
+- **(b) make emergence proportional to the stance shift** so the cascade
+  takes several periods. That is a *new* mechanism, not the imported one,
+  and must be labelled as a departure.
+
+## F.2 C8 exposure: the multi-period structure is alive (preliminary)
+
+Three iterations in, `mean_adopted ≈ 15–18 of 50` and `mean_final_stance ≈
++0.01…+0.03` (reward ≈ 14 on its own scale: +1.0 per persuader-sourced
+adoption, +0.05 accept shaping, λ=0.2 judge). By construction it has no
+stance dynamics — adoption moves through a **persistent cross-period
+queue** gated by an LLM accept decision — so unlike C7 it uses all ten
+periods. This is the arm where the multi-period RL problem actually
+exists.
+
+**Reading the two arms together.** They are not directly comparable:
+different adoption rules, different reward scales, and C7's reward is
+nearly constant while C8's reflects genuine partial adoption. C8's curve
+is the one that speaks to *diffusion over time*; C7's speaks only to
+*first-round message quality*. Both are traced and live-plotted
+(§E.2 / `METRICS.md`); monitors run on ports 3010 (cascade) and 3011
+(exposure), and the run dashboard is on 3009 (§D.1).
+
