@@ -988,6 +988,15 @@ things:
   takes several periods. That is a *new* mechanism, not the imported one,
   and must be labelled as a departure.
 
+**Decision (2026-10-25): keep (a).** C7 runs to 300 iterations unchanged
+and is reported as a single-round persuasion-quality benchmark; C8 carries
+the multi-period diffusion question. Rationale: (a) is faithful to the
+import (the whole point of the exercise), and it is now *cheap* — only
+period 0 spends gateway calls, so the cascade arm costs a fraction of the
+exposure arm and does not compete with it for throughput. A
+shift-proportional variant would be a new mechanism and is therefore a
+separate experiment, not a patch to this one.
+
 ## F.2 C8 exposure: the multi-period structure is alive (preliminary)
 
 Three iterations in, `mean_adopted ≈ 15–18 of 50` and `mean_final_stance ≈
