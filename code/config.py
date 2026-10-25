@@ -79,8 +79,23 @@ class LLMConfig:
     # leaves the provider default. Call sites may override per call.
     reasoning_effort: str | None = os.environ.get("LLM_REASONING_EFFORT") or None
 
-    max_retries: int = 3
-    retry_backoff_seconds: float = 1.5
+    # Retry policy for transient API failures. The short default (3
+    # attempts, ~10 s of waiting) is fine for a single interactive call,
+    # but a *fleet* of workers can outlive it: when the shared gateway
+    # saturates it answers 503 for tens of seconds, and a cheap retry
+    # window then kills a campaign that is hours into training. The
+    # campaign runner therefore raises these (LLM_MAX_RETRIES,
+    # LLM_RETRY_BACKOFF_SECONDS) rather than losing the run — see
+    # code/run_mech_campaigns.sh.
+    max_retries: int = int(os.environ.get("LLM_MAX_RETRIES", "3"))
+    retry_backoff_seconds: float = float(
+        os.environ.get("LLM_RETRY_BACKOFF_SECONDS", "1.5")
+    )
+    # Ceiling on the exponential backoff: without it a large retry
+    # budget would sleep for many minutes on the last attempt.
+    retry_backoff_max_seconds: float = float(
+        os.environ.get("LLM_RETRY_BACKOFF_MAX_SECONDS", "30")
+    )
     timeout_seconds: float = 120.0
 
     # Max concurrent workers for batched LLM calls (live mode).

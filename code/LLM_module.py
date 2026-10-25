@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import threading
 import time
@@ -56,6 +57,22 @@ def _get_client():
 
 def _cache_path(cache_dir: Path, key: str) -> Path:
     return cache_dir / f"{key}.json"
+
+
+def retry_wait(cfg: LLMConfig, attempt: int) -> float:
+    """Seconds to sleep before retrying a failed call.
+
+    `attempt` is 1-based (the attempt that just failed). Exponential in
+    the attempt, capped by ``cfg.retry_backoff_max_seconds``, and
+    multiplied by a jitter in [0.5, 1.5) so that a fleet of workers that
+    failed together does not retry together -- correlated retries are
+    what turn a brief gateway 503 burst into a sustained one.
+    """
+    base = min(
+        cfg.retry_backoff_max_seconds,
+        cfg.retry_backoff_seconds * (2 ** (attempt - 1)),
+    )
+    return base * (0.5 + random.random())
 
 
 def call_llm(
@@ -153,7 +170,10 @@ def call_llm(
             return content
         except Exception as exc:  # noqa: BLE001 - transient API errors
             last_error = exc
-            wait = cfg.retry_backoff_seconds * (2 ** (attempt - 1))
+            if attempt >= cfg.max_retries:
+                break
+            # Exponential backoff, capped and jittered -- see retry_wait.
+            wait = retry_wait(cfg, attempt)
             logger.warning(
                 "LLM call attempt %d/%d failed (%s); retrying in %.1fs",
                 attempt,
