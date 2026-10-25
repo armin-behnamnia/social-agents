@@ -343,6 +343,11 @@ class LLMEnvironment(Environment):
             return False
 
         return False
+    def reset(agents):
+        self.diffusion_events = []
+        self.message_events = []
+        for a in agents:
+            a.emerged =False
     def calc_population_infection_state(self, agents: "AgentList[LLMSocialAgent]"):
         self.setup()
         for agent in agents:
