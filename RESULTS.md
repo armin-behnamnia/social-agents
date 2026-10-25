@@ -1046,3 +1046,32 @@ is the one that speaks to *diffusion over time*; C7's speaks only to
 (§E.2 / `METRICS.md`); monitors run on ports 3010 (cascade) and 3011
 (exposure), and the run dashboard is on 3009 (§D.1).
 
+**F.2a Early evaluation signal — the two arms are diverging (iteration 50
+of 300, preliminary).** The paired eval (50 episodes, identical seeds)
+says opposite things about the two arms:
+
+| eval | greedy | random | heuristic |
+|------|--------|--------|-----------|
+| C7 cascade @20 | **1.413** | 1.079 (t=+4.26) | 0.755 (t=+13.73) |
+| C7 cascade @40 | **1.589** | 1.079 (t=+6.81) | 0.755 (t=+18.22) |
+| C8 exposure @20 | 13.962 | 14.143 (t=−1.48) | 13.702 (t=+1.93) |
+| C8 exposure @40 | 13.536 | **14.143** (t=−9.57) | 13.702 (t=−1.44) |
+
+C7's policy beats both baselines by a margin that is *growing* (and its
+judge-eval rises 0.931 → 0.974): on message quality the arm is learning —
+which is the only thing that arm can learn, since every agent adopts in
+period 0 regardless (§F.1).
+
+C8's policy is instead **flat to worse**: reward 14.2 → 14.0 with
+`mean_adopted` pinned at 13.5–18.8, and at iteration 40 greedy is
+*significantly below the random baseline* while the judge score of its
+messages rose (0.523 → 0.749) and its strategy entropy collapsed
+(1.31 → 0.91, i.e. it narrowed onto one angle). That is the signature of a
+policy optimising `a(m)` — the one component it can actually move —
+without that translating into reward, because the reward is dominated by
+the adoption bonus, which is decided by the LLM accept gate rather than by
+the strategy chosen. Flagged here rather than left for the final read: if
+it holds to 300 it is the main C8 finding, and it is a statement about the
+*reward*, not about the mechanism's diffusion (which §F.2 shows is alive).
+The campaign continues; nothing here is a verdict yet.
+
