@@ -565,10 +565,11 @@ HTML = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RL Persuader — Results &amp; Diagnostics</title>
-<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
+<!-- fonts: this environment is offline; body falls back to Georgia, mono is vendored -->
 <style>
-@font-face{font-family:'Monaspace Argon';src:url('https://cdn.jsdelivr.net/gh/githubnext/monaspace@v1.101/fonts/webfonts/MonaspaceArgon-Regular.woff2') format('woff2');font-weight:400;font-display:swap;}
-@font-face{font-family:'Monaspace Argon';src:url('https://cdn.jsdelivr.net/gh/githubnext/monaspace@v1.101/fonts/webfonts/MonaspaceArgon-Bold.woff2') format('woff2');font-weight:700;font-display:swap;}
+@font-face{font-family:'Liberation Mono';src:url('vendor/fonts/LiberationMono-Regular.ttf') format('truetype');font-weight:400;font-display:swap;}
+@font-face{font-family:'Liberation Mono';src:url('vendor/fonts/LiberationMono-Bold.ttf') format('truetype');font-weight:700;font-display:swap;}
+@font-face{font-family:'Liberation Mono';src:url('vendor/fonts/LiberationMono-Italic.ttf') format('truetype');font-style:italic;font-weight:400;font-display:swap;}
 :root{
   --ink:#1a1a1a;--ink-light:#555;--ink-muted:#888;--bg:#fffff8;--bg-aside:#f9f6ee;
   --accent:#a00;--rule:#ccc;
@@ -577,13 +578,13 @@ HTML = r"""<!DOCTYPE html>
 }
 *{box-sizing:border-box;}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:'EB Garamond',Georgia,serif;font-size:18px;line-height:1.6;}
-.mono{font-family:'Monaspace Argon',ui-monospace,monospace;font-variant-numeric:tabular-nums;}
+.mono{font-family:'Liberation Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;}
 .wrap{max-width:1200px;margin:0 auto;padding:2rem 1.5rem 4rem;}
 h1{font-size:2.2rem;font-weight:400;font-variant:small-caps;letter-spacing:0.01em;margin:0.5rem 0 0.3rem;}
 h2{font-size:1.5rem;font-weight:400;font-variant:small-caps;margin:3rem 0 0.4rem;}
 h3{font-size:1.15rem;font-weight:400;font-variant:small-caps;color:var(--ink-light);margin:1.6rem 0 0.4rem;}
 .sub{color:var(--ink-light);font-style:italic;margin:0 0 0.8rem;}
-.tags{font-family:'Monaspace Argon',monospace;font-size:0.65rem;color:var(--rule);letter-spacing:0.04em;margin-bottom:1.4rem;}
+.tags{font-family:'Liberation Mono',monospace;font-size:0.65rem;color:var(--rule);letter-spacing:0.04em;margin-bottom:1.4rem;}
 .tags span{margin-right:1rem;}
 .lede{font-size:1.25rem;line-height:1.6;}
 .lede::first-letter{font-size:3.1rem;float:left;line-height:0.85;padding:0.1rem 0.5rem 0 0;font-family:'EB Garamond';}
@@ -594,21 +595,21 @@ a{color:var(--status-blue);text-decoration:none;}
 .toc{position:sticky;top:2rem;font-size:0.82rem;}
 .toc-title{font-variant:small-caps;letter-spacing:0.1em;color:var(--ink-muted);margin-bottom:0.6rem;}
 .toc a{display:block;color:var(--ink-light);padding:0.15rem 0;}
-.toc a::before{content:'$';color:var(--rule);font-family:'Monaspace Argon',monospace;font-size:0.7rem;margin-right:0.4rem;}
+.toc a::before{content:'$';color:var(--rule);font-family:'Liberation Mono',monospace;font-size:0.7rem;margin-right:0.4rem;}
 .toc a:hover{color:var(--accent);}
-.back-to-top{color:var(--rule);font-family:'Monaspace Argon',monospace;font-size:1rem;transition:color .3s,transform .3s;}
+.back-to-top{color:var(--rule);font-family:'Liberation Mono',monospace;font-size:1rem;transition:color .3s,transform .3s;}
 .back-to-top:hover{color:var(--accent);transform:translateY(-2px);}
-.ornament{font-family:'Monaspace Argon',monospace;font-size:0.9rem;color:var(--rule);text-align:center;margin:2.4rem 0;letter-spacing:0.2em;font-feature-settings:'calt' 1,'liga' 1;}
+.ornament{font-family:'Liberation Mono',monospace;font-size:0.9rem;color:var(--rule);text-align:center;margin:2.4rem 0;letter-spacing:0.2em;font-feature-settings:'calt' 1,'liga' 1;}
 .summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem;margin:1.5rem 0 0.5rem;}
 .summary-card{position:relative;background:var(--bg-aside);border:1px solid var(--rule);padding:1rem 1rem 0.9rem;transition:border-color .3s,box-shadow .3s;}
 .summary-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--card-color,var(--spark-primary));}
 .summary-card:hover{border-color:var(--card-color,var(--spark-primary));box-shadow:0 2px 10px rgba(0,0,0,0.05);}
 .summary-card .label{font-variant:small-caps;letter-spacing:0.06em;color:var(--ink-light);font-size:0.9rem;}
 .big-number-row{display:flex;align-items:flex-end;justify-content:space-between;gap:0.5rem;}
-.big-number{font-family:'Monaspace Argon',monospace;font-size:2.3rem;letter-spacing:-0.02em;line-height:1.1;}
+.big-number{font-family:'Liberation Mono',monospace;font-size:2.3rem;letter-spacing:-0.02em;line-height:1.1;}
 .card-spark{width:80px;height:30px;flex:none;}
 .detail{font-size:0.82rem;color:var(--ink-light);margin-top:0.2rem;line-height:1.4;}
-.trend{font-family:'Monaspace Argon',monospace;font-size:0.78rem;margin-top:0.35rem;}
+.trend{font-family:'Liberation Mono',monospace;font-size:0.78rem;margin-top:0.35rem;}
 .trend.up{color:var(--status-green);}.trend.down{color:var(--status-red);}.trend.flat{color:var(--status-amber);}
 .aside-container{display:grid;grid-template-columns:1fr 280px;gap:2rem;align-items:start;margin:2rem 0;}
 .aside{font-size:0.85rem;line-height:1.55;color:var(--ink-light);font-style:italic;border-left:1px solid var(--rule);padding-left:1rem;}
@@ -622,7 +623,7 @@ table{border-collapse:collapse;width:100%;font-size:0.92rem;}
 th{font-variant:small-caps;color:var(--ink-muted);font-weight:400;text-align:right;border-bottom:1px solid var(--rule);padding:0.4rem 0.6rem;white-space:nowrap;}
 th:first-child{text-align:left;}
 th.left{text-align:left;}
-td{text-align:right;padding:0.38rem 0.6rem;border-bottom:1px solid #eee;font-family:'Monaspace Argon',monospace;font-variant-numeric:tabular-nums;font-size:0.85rem;transition:background .2s ease;}
+td{text-align:right;padding:0.38rem 0.6rem;border-bottom:1px solid #eee;font-family:'Liberation Mono',monospace;font-variant-numeric:tabular-nums;font-size:0.85rem;transition:background .2s ease;}
 td:first-child{text-align:left;font-family:'EB Garamond',serif;font-size:0.95rem;}
 td.left{text-align:left;font-family:'EB Garamond',serif;font-size:0.95rem;}
 tbody tr:hover td{background:#f1ecdc;}
@@ -638,12 +639,12 @@ tbody tr:hover td{background:#f1ecdc;}
 .status-amber{border-left-color:var(--status-amber)!important;}
 .status-green{border-left-color:var(--status-green)!important;}
 .status-label{font-variant:small-caps;letter-spacing:0.06em;font-size:0.8rem;color:var(--ink-light);}
-.status-value{font-family:'Monaspace Argon',monospace;font-size:1.4rem;line-height:1.3;}
+.status-value{font-family:'Liberation Mono',monospace;font-size:1.4rem;line-height:1.3;}
 .status-note{font-size:0.78rem;color:var(--ink-muted);}
 .note-red{color:var(--status-red);}.note-green{color:var(--status-green);}.note-amber{color:var(--status-amber);}
 .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s cubic-bezier(.25,.1,.25,1),transform .6s cubic-bezier(.25,.1,.25,1);}
 .reveal.visible{opacity:1;transform:none;}
-footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-size:0.78rem;color:var(--ink-muted);font-family:'Monaspace Argon',monospace;}
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-size:0.78rem;color:var(--ink-muted);font-family:'Liberation Mono',monospace;}
 @media (max-width:800px){
   .toc-layout{grid-template-columns:1fr;}.toc{position:static;}
   .summary-row,.status-strip{grid-template-columns:1fr 1fr;}
@@ -1140,7 +1141,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="vendor/chart.umd.min.js"></script>
 <script>
 const D = __DATA__;
 
