@@ -239,11 +239,9 @@ class LLMSocialAgent(NetworkAgent):
     def infection_stance_aware(self, agents: "AgentList[LLMSocialAgent]", 
         period: int, diffusion_events: list, message_events: list, source_agent):
        
-        self.save_message_event(message_events, period, source_agent, influence_prob, estimated_stance_shift,
-        estimated_stance_shift_post, estimated_stance_shift_profile, old_profile, self.profile_embedding,
-        new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
-        generated_post_embedding, target_stance_before, target_stance_after, self.emerged)
-        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, self.emerged)
+        self.save_message_event(message_events, period, source_agent, 0,0 ,0,0,0,self.profile_embedding,0
+        ,0,source_agent.post,source_agent.post_embedding,0,0,0,0,self.emerged)
+        self.save_diffusion_event( diffusion_events, period, source_agent, 0, 0, 0, self.emerged)
 
         print("emerged? ",self.emerged, " id:", self.id); # return False
         if self.id == source_agent.id: print("same_target_id, target_id: ", self.id) ; return False
@@ -361,16 +359,14 @@ class LLMSocialAgent(NetworkAgent):
         return self.emerged
 
     def infection(self, agents, period,diffusion_events, message_events, source_agent):
-        self.save_message_event(message_events, period, source_agent, influence_prob, 0,
-        0, 0, old_profile, self.profile_embedding,
-        "", "", source_agent.post, source_agent.post_embedding,"","", target_stance_before,
-        target_stance_after, self.emerged)
-        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, self.emerged)
+        self.save_message_event(message_events, period, source_agent, 0,0 ,0,0,0,self.profile_embedding,0
+        ,0,source_agent.post,source_agent.post_embedding,0,0,0,0,self.emerged)
+        self.save_diffusion_event( diffusion_events, period, source_agent, 0, 0, 0, self.emerged)
 
         if self.id == source_agent.id:
             print("initial return, same id,  target_id: ", self.id); 
             return False
-        print("Is Imarged? ",self.emerged, " id: ", self.id); #return False
+        print("Is Emerged? ",self.emerged, " id: ", self.id); #return False
         source_post = source_agent.post
         if not source_post or not str(source_post).strip():
             print("initial return, !post, target_id: ", self.id);

@@ -16,3 +16,27 @@ import. The two stacks are parallel implementations of the paper:
 
 Theirs expect a Melodie project layout (package `source/`, root
 `config.py`); see `code/run_simulator.py` for the intended entrypoint.
+
+## Upstream tracking
+
+`agent.py` here is refreshed to upstream `main` @ `4083fad` (2026-10-25,
+"Add files via upload"). That commit:
+
+- replaced the two duplicate event-log calls per infection (they
+  referenced undefined locals — the defect our port records as
+  `MELFIX 3`) with zero-placeholders. **Mechanism semantics unchanged**:
+  no change to the `emerged` guard, the BFS, or adoption.
+- added `LLMEnvironment.reset(agents)` (clears `emerged` + both event
+  lists) and calls it between the stance-aware and the exposure phase in
+  `LLMModel.run()`, with `m` 2 -> 3 — i.e. cascade -> reset -> exposure is
+  now one pipeline. The reset exists because `emerged` is sticky, so an
+  agent can be influenced only once per phase; clearing it lets the
+  exposure phase reach agents the cascade already converted.
+- two defects, left as-is because this directory is a verbatim archive:
+  `def reset(agents)` is missing `self`, so `environment.reset(...)`
+  raises `NameError`; and `m`/`k` is inert (`if target.exposure_count <
+  k` is commented out), so `m=3` has no effect.
+
+`code/environment.py` and `code/model.py` carry those upstream edits
+directly (our RL stack does not import them). `code/agent.py` keeps ours,
+as above.

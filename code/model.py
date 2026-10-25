@@ -167,8 +167,9 @@ class LLMModel(Model):
         print("Simulation finished.", flush=True)
 
     def run(self, method=""):
-        self.initialisation(); m=2
+        self.initialisation(); m=3
         self.run_stance_aware( method="stance_aware", k=m)
+        self.environment.reset(self.agents)
         self.run_exposure( method="", k=m)
           
     def load_agent_profiles(self):
