@@ -41,6 +41,10 @@
 #         bash code/run_mech_campaigns.sh cascade    # only C7
 #         bash code/run_mech_campaigns.sh exposure   # only C8
 #         bash code/run_mech_campaigns.sh resume-both  # resume C7 + C8
+#         bash code/run_mech_campaigns.sh resume-cascade-parallel
+#                                    # resume C7 + start C8, concurrently
+#         bash code/run_mech_campaigns.sh resume-parallel
+#                                    # resume both, concurrently
 #
 # Both arms run with --trace, so code/live_monitor.py can show every
 # immediate variable (per-decision persuasiveness, per-period population
@@ -52,6 +56,26 @@ cd "$(dirname "$0")/.."
 PY=.venv/bin/python
 export PYTHONPATH=.
 export PERSUASION_STRATEGY_SPACE=v2
+
+# Per-arm rollout concurrency. When both arms run together they put 2x
+# this many threads on the shared gateway; 96 keeps the pair (~192)
+# inside the measured envelope (RESULTS.md §E.2). A 320-wide launch
+# already earned a sustained 503 burst from the gateway and killed the
+# campaign ~2 minutes in, so the default is deliberately conservative.
+# Override with MECH_WORKERS=160 to go back to the old setting.
+WORKERS="${MECH_WORKERS:-96}"
+
+# Transient-failure policy for a multi-hour campaign. The gateway answers
+# 503 while it is saturated, in bursts longer than the library default
+# (3 attempts / ~10 s), and losing a run that is hours in is far worse
+# than waiting: 6 attempts, 2 s base, 1.5x-1x jittered, capped at 30 s
+# (see code/config.py).
+export LLM_MAX_RETRIES="${LLM_MAX_RETRIES:-6}"
+export LLM_RETRY_BACKOFF_SECONDS="${LLM_RETRY_BACKOFF_SECONDS:-2}"
+
+# A crashed arm is retried (resuming from its checkpoint) up to this many
+# times before the run is declared failed.
+MAX_ARM_ATTEMPTS="${MECH_MAX_ATTEMPTS:-8}"
 
 echo "[*] waiting for the chat endpoint model (${LLM_MODEL:-from .env})..."
 set -a; [ -f .env ] && source .env; set +a
@@ -71,7 +95,7 @@ done
 echo "[+] chat endpoint live."
 
 COMMON="--mode live --iterations 300 --episodes-per-iter 32 \
-  --rollout-workers 160 --n-periods 10 --obs-mode pair \
+  --rollout-workers $WORKERS --n-periods 10 --obs-mode pair \
   --target-selection random_neighbor --judge bt \
   --bt-table output/ppo_v2_bt/bt_judge.json \
   --agent-num 50 --n-persuaders 5 --topology erdos_renyi \
@@ -111,15 +135,75 @@ run_exposure() {
 C7_RESUME="--resume --resume-log output/ppo_mech_cascade/live/training_log.json"
 C8_RESUME="--resume --resume-log output/ppo_mech_exposure/live/training_log.json"
 
+# ---------------------------------------------------------------------
+# Crash recovery. Both arms checkpoint every 10 iterations and the
+# trainer can re-attach its curve (--resume + --resume-log), so when an
+# arm exits non-zero the cheapest correct move is to restart it from its
+# checkpoint rather than lose a campaign that is hours in. This wrapper
+# does exactly that, bounded, so a genuine bug still surfaces instead of
+# looping forever.
+# ---------------------------------------------------------------------
+run_arm() {
+    local label="$1" fn="$2" resume_args="$3" ckpt="$4"
+    local attempt extra
+    for attempt in $(seq 1 "$MAX_ARM_ATTEMPTS"); do
+        extra=""
+        [ -f "$ckpt" ] && extra="$resume_args"
+        if "$fn" "$extra"; then
+            echo "[+] $label finished (attempt $attempt)"
+            return 0
+        fi
+        if [ -n "$extra" ]; then
+            echo "[!] $label exited non-zero (attempt" \
+                 "$attempt/$MAX_ARM_ATTEMPTS): resuming from checkpoint" >&2
+        else
+            echo "[!] $label exited non-zero (attempt" \
+                 "$attempt/$MAX_ARM_ATTEMPTS): no checkpoint yet, restarting" >&2
+        fi
+        sleep 15
+    done
+    echo "[!] $label FAILED after $MAX_ARM_ATTEMPTS attempts" >&2
+    return 1
+}
+
+CASCADE_CKPT=output/ppo_mech_cascade/live/policy.pt
+EXPOSURE_CKPT=output/ppo_mech_exposure/live/policy.pt
+
+# Parallel modes run the two arms CONCURRENTLY as separate processes.
+# Measured (RESULTS.md §E.2): the gateway's throughput scales with
+# concurrency (27/s at c=16 → 90/s at c=512) while our client is idle
+# (0.4 of 176 cores, 234/234 threads blocked on I/O), so the two arms
+# together demand ~2x$WORKERS calls/s and finish in roughly the time ONE
+# takes alone. Local cost: 2 processes, ~5 GB RAM, 2x$WORKERS threads.
+#
+# All three parallel spellings now behave the same way: each arm resumes
+# iff it already has a checkpoint. That makes them safe to re-run after
+# an interruption without remembering which arm was mid-flight.
+run_parallel() {
+    local p_cascade p_exposure rc=0
+    run_arm "C7 cascade"  run_cascade  "$C7_RESUME" "$CASCADE_CKPT" &
+    p_cascade=$!
+    run_arm "C8 exposure" run_exposure "$C8_RESUME" "$EXPOSURE_CKPT" &
+    p_exposure=$!
+    wait "$p_cascade" || rc=1
+    wait "$p_exposure" || rc=1
+    return "$rc"
+}
+
 case "${1:-both}" in
-    cascade)        run_cascade ;;
-    exposure)       run_exposure ;;
-    both)           run_cascade && run_exposure ;;
-    resume-cascade) run_cascade "$C7_RESUME" ;;
-    resume-exposure) run_exposure "$C8_RESUME" ;;
-    resume-both)    run_cascade "$C7_RESUME" && run_exposure "$C8_RESUME" ;;
+    cascade)         run_arm "C7 cascade"  run_cascade  "$C7_RESUME" "$CASCADE_CKPT" ;;
+    exposure)        run_arm "C8 exposure" run_exposure "$C8_RESUME" "$EXPOSURE_CKPT" ;;
+    both)
+        run_arm "C7 cascade" run_cascade "$C7_RESUME" "$CASCADE_CKPT" \
+            && run_arm "C8 exposure" run_exposure "$C8_RESUME" "$EXPOSURE_CKPT" ;;
+    resume-cascade)  run_arm "C7 cascade"  run_cascade  "$C7_RESUME" "$CASCADE_CKPT" ;;
+    resume-exposure) run_arm "C8 exposure" run_exposure "$C8_RESUME" "$EXPOSURE_CKPT" ;;
+    resume-both)
+        run_arm "C7 cascade" run_cascade "$C7_RESUME" "$CASCADE_CKPT" \
+            && run_arm "C8 exposure" run_exposure "$C8_RESUME" "$EXPOSURE_CKPT" ;;
+    parallel|resume-parallel|resume-cascade-parallel) run_parallel ;;
     *)
-        echo "usage: $0 [cascade|exposure|both|resume-cascade|resume-exposure|resume-both]" >&2
+        echo "usage: $0 [cascade|exposure|both|resume-cascade|resume-exposure|resume-both|parallel|resume-parallel|resume-cascade-parallel]" >&2
         exit 1
         ;;
 esac
