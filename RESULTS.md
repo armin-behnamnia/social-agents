@@ -739,3 +739,49 @@ runs use `--mech-beta-init` (mechanism is non-functional otherwise).
 Runner: `code/run_mech_campaigns.sh` (preflights the chat endpoint,
 runs C7 cascade → C8 exposure serially into `output/ppo_mech_*/live`).
 
+
+### §E.1 Model choice for the mechanism campaigns (2026-10-25)
+
+The gateway (`http://192.168.0.34:8453/v1`) serves exactly two models:
+`deepseek-dynamo/deepseek-v4.1-flash` (reasoning model) and
+`dynamo qwen38 27b/qwen38-27b-fp8`. Measured with the probe now kept as
+`code/probe_models.py` (unique inputs, so nothing is served from cache;
+run while C7 was loading the endpoint, i.e. under contention):
+
+| model | c=1 mean | c=16 | c=64 | judge mean/sd | accept rate |
+|---|---|---|---|---|---|
+| deepseek-v4.1-flash | 0.80 s | 16.1 calls/s | 37.3 calls/s | 0.39 / 0.23 | 3/10 |
+| qwen38-27b-fp8 | 0.70 s | 14.4 calls/s | 42.2 calls/s | 0.37 / 0.30 | 3/10 |
+
+Both are **compliant and calibrated for our call shapes**: the accept
+gate returns exactly `ACCEPT`/`REJECT`, BT compare a bare `A/B/EQUAL`,
+the judge a parseable number with a non-degenerate spread (5 distinct
+values, neither model pins to 0 or 10) and the same 30% acceptance rate.
+Per-call the 27B FP8 is ~1.1-1.4x faster; aggregate throughput at our
+operating tier is a wash, because the gateway — not the model — is the
+bottleneck.
+
+**Consumption we impose** (same probe, cache-file census): ~2,500-3,000
+new (uncacheable) calls/minute, i.e. **~42-50 calls/s sustained**, or
+~**1.8M unique LLM calls per 300-iteration arm**. Compute is negligible
+by comparison: one process, ~2.4 GB RSS, ~0.4 core, 234 I/O-blocked
+threads, **814 MiB of one H200** (the other 7 GPUs at ~99% on this box
+are other users' jobs).
+
+**Decision.** Keep `deepseek-v4.1-flash` for the running C7/C8 pair: the
+throughput difference is ≤1.1x at c=64, C7 was already underway, and
+mixing models across the two arms would confound the mechanism
+comparison. Use `qwen38-27b-fp8` for high-volume, low-stakes work where
+no reward depends on the text (smoke/CI, dashboard copy, mock-ish
+ablations such as a repeating-cascade C7b) — it is far cheaper to serve
+per call at equivalent compliance. Any future change of model for a
+*scored* campaign should use one model per campaign.
+
+**The real speedup is call volume, not the model.** Cascade pays 3
+internalization calls per exposure (`generate_response_message` ->
+`update_profile` -> `generate_information`) and
+`generate_response_message` embeds `delta_stance` at 4 decimals, which
+makes the prompt uncacheable across episodes — every episode re-pays
+~50-60 fresh calls (identified in the campaign-6 note as well).
+Quantising that delta behind an opt-in flag is the highest-leverage
+change: it should turn most of those calls into cache hits.
