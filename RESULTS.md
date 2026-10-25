@@ -695,11 +695,18 @@ Both modes retrain end-to-end through the PPO stack (mock-mode smoke,
 open design questions:
 
 1. **Population stance init.** Faithful = their Beta(6,2)/-Beta(8,2)
-   60/40 mix (`--mech-beta-init`). Exposure mode mathematically *stalls*
-   with our all-positive init (proven by test): adopters stay positive
-   and the next-period queue only admits stance ≤ 0. So exposure runs
-   need beta init (or a "adoption stamps stance −1" rule, which is NOT
-   in their code — we'd be inventing dynamics).
+   60/40 mix (`--mech-beta-init`). **Both** mechanisms need it, for a
+   reason specific to their code: their source rule is "adopted AND
+   stance ≤ 0" (our paper mode just needs `preference_state == 1` — no
+   stance gate). With our all-positive init, an exposure pulls an
+   adopter only to ≈ +0.32, adopted agents are never re-exposed, and
+   the cascade dies after the persuaders' direct neighbours (exposure
+   mode: the queue is admitted only from stance ≤ 0, same stall). Both
+   stalls are pinned by tests (test_mech_envs.py). So mechanism
+   campaigns run with beta init; constants (α, susceptibility), action
+   space, reward plumbing and protocol stay matched to campaign 6.
+   A 1–2 iteration constant-init control arm can demonstrate the live
+   stall cheaply if wanted.
 2. **Reward for the stance-less regime.** No stance deltas exist, so
    Track-B goal-δ is a no-op there; `--reward-adoption-bonus` +
    accept shaping + judge λ·a(m) must carry the signal. Value to set

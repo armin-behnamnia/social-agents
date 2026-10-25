@@ -66,7 +66,9 @@ def _judge_fn(goal: str, anti: str, cache: bool):
     def a(message: str) -> float:
         raw = LLM_module.call_llm(
             _JUDGE_PROMPT.format(goal=goal, post=message),
-            temperature=0.0, max_tokens=8, cache=cache,
+            temperature=0.0,
+            max_tokens=LLM_module.GLOBAL_LLM_CONFIG.inference_max_tokens,
+            cache=cache,
         )
         m = _NUM.search(raw or "")
         if not m:

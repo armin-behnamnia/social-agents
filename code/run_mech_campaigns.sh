@@ -8,6 +8,17 @@
 #                and --reward-adoption-bonus 1.0 since Δs ≡ 0 there;
 #                reward = bonus + accept shaping + judge λ·a(m))
 #
+# BOTH mechanisms need --mech-beta-init: their source rule is
+# "adopted AND stance <= 0", so with our all-positive crowd the adopters
+# (~+0.32 after one pull) never qualify as sources and diffusion dies
+# after the persuaders' direct neighbours. Cascade needs it for exactly
+# the same reason exposure does (verified by test).
+#
+# LLM backend note: the configured model is a reasoning model — the
+# generation/inference token budgets in code/config.py are sized for it
+# (see LLM_GENERATION_MAX_TOKENS / LLM_INFERENCE_MAX_TOKENS overrides);
+# too-small budgets make it return empty content.
+#
 # Matched protocol (identical to campaign 6): v2 strategy space, 50
 # agents, 5 persuaders, erdos_renyi, 10 periods, --obs-mode pair,
 # --target-selection random_neighbor, seed 0, 300 iters × 32 episodes,
@@ -52,7 +63,8 @@ COMMON="--mode live --iterations 300 --episodes-per-iter 32 \
 run_cascade() {
     echo "[*] C7 cascade -> output/ppo_mech_cascade/live"
     $PY -u -m code.train_persuader $COMMON \
-        --mechanism cascade --goal-delta --align judge \
+        --mechanism cascade --mech-beta-init \
+        --goal-delta --align judge \
         --output-dir output/ppo_mech_cascade/live
 }
 

@@ -491,7 +491,7 @@ def accept_message(
     raw = call_llm(
         prompt,
         temperature=GLOBAL_LLM_CONFIG.inference_temperature,
-        max_tokens=16,
+        max_tokens=GLOBAL_LLM_CONFIG.inference_max_tokens,
     )
     decision = str(raw).strip().upper()
     return "ACCEPT" if decision.startswith("ACCEPT") else "REJECT"

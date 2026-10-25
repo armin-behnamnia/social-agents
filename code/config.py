@@ -57,9 +57,19 @@ class LLMConfig:
     generation_temperature: float = 0.8
     inference_temperature: float = 0.0
 
-    generation_max_tokens: int = 500
-    inference_max_tokens: int = 64
-    profile_max_tokens: int = 4000
+    generation_max_tokens: int = int(
+        os.environ.get("LLM_GENERATION_MAX_TOKENS", "2048")
+    )
+    # Reasoning models spend tokens on hidden reasoning before the
+    # answer, so a small budget returns empty content. 512 gives room
+    # for the answer in every estimator prompt (bt compare, stance
+    # shift, accept/reject, goal alignment).
+    inference_max_tokens: int = int(
+        os.environ.get("LLM_INFERENCE_MAX_TOKENS", "512")
+    )
+    profile_max_tokens: int = int(
+        os.environ.get("LLM_PROFILE_MAX_TOKENS", "4000")
+    )
 
     max_retries: int = 3
     retry_backoff_seconds: float = 1.5

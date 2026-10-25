@@ -59,7 +59,7 @@ def compare(a: str, b: str, profile: str, *, cache: bool = True) -> int | None:
     raw = LLM_module.call_llm(
         PAIR_PROMPT.format(profile=profile, a=a, b=b),
         temperature=0.0,
-        max_tokens=8,
+        max_tokens=LLM_module.GLOBAL_LLM_CONFIG.inference_max_tokens,
         cache=cache,
     )
     m = _TOK.search(raw or "")

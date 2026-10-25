@@ -123,7 +123,7 @@ def ping_llm() -> bool:
         reply = LLM_module.call_llm(
             "Reply with the single word: ok",
             temperature=0.0,
-            max_tokens=8,
+            max_tokens=64,
             cache=False,
         )
         print(f"[+] LLM endpoint reachable (reply: {reply[:20]!r})")
