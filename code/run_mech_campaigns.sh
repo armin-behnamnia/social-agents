@@ -68,6 +68,7 @@ COMMON="--mode live --iterations 300 --episodes-per-iter 32 \
   --rollout-workers 160 --n-periods 10 --obs-mode pair \
   --target-selection random_neighbor --judge bt \
   --bt-table output/ppo_v2_bt/bt_judge.json \
+  --agent-num 50 --n-persuaders 5 --topology erdos_renyi \
   --paired-eval-every 20 --paired-eval-episodes 50"
 
 run_cascade() {
