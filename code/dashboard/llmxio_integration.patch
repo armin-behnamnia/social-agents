@@ -1,3 +1,184 @@
+diff --git a/dashboard/__tests__/components/AgentInspectorVariables.test.tsx b/dashboard/__tests__/components/AgentInspectorVariables.test.tsx
+new file mode 100644
+index 0000000..781b03b
+--- /dev/null
++++ b/dashboard/__tests__/components/AgentInspectorVariables.test.tsx
+@@ -0,0 +1,175 @@
++/**
++ * The node inspector must show the *simulation* variables of the node on
++ * screen — above all its current stance — read from the per-agent sidecar
++ * (`agent_variables_50_repub_<run>.json`) that code/export_dashboard.py
++ * writes next to the Twitter-schema CSVs.
++ *
++ * The dashboard's own schema has no opinion variables, so this panel is
++ * the only place a node description can show them; it must (a) render the
++ * values at the iteration the timeline is showing, (b) name each variable
++ * and carry its description, (c) show what reached the agent, and (d) stay
++ * invisible — not broken — for runs that ship no sidecar.
++ */
++import React from 'react';
++import { render, screen, waitFor } from '@testing-library/react';
++import { AgentInspector } from '@/components/AgentInspector';
++import { useSimulationStore } from '@/store/simulationStore';
++import {
++  createMockAgent,
++  createMockNetworkState,
++  mockAgentColors,
++} from '../helpers/testUtils';
++
++jest.mock('@/store/simulationStore');
++
++// Shaped exactly like code/export_dashboard.py::_write_agent_variables
++const SIDECAR = {
++  run: 10,
++  label: 'C7 cascade',
++  n_agents: 1,
++  n_periods: 2,
++  iterations: [0, 1, 2],
++  iteration_labels: ['t0', 't1', 't2'],
++  variables: [
++    {
++      key: 'stance', label: 'Stance', unit: '[-1, +1]', kind: 'continuous',
++      chart: true,
++      description: 'Current stance toward the policy: +1 fully supports it, -1 is fully aligned with the persuaders.',
++    },
++    {
++      key: 'adopted', label: 'Adopted', kind: 'binary', chart: false,
++      description: 'Whether the agent has adopted the persuaders\' view at this iteration (sticky).',
++    },
++    {
++      key: 'exposure_cum', label: 'Exposures received', unit: 'events',
++      kind: 'count', chart: false,
++      description: 'Cumulative number of influence events that reached this agent.',
++    },
++  ],
++  static_variables: [
++    { key: 'role', label: 'Role', description: 'Whether the agent is a seed persuader or an organic user in the crowd.' },
++    { key: 'degree', label: 'Degree', description: 'Number of network neighbours the agent can be reached through.' },
++  ],
++  agents: {
++    u09: {
++      agent_id: 9,
++      role: 'organic',
++      leaning: 'persuadable',
++      profile: 'A profile about the policy.',
++      degree: 3,
++      series: {
++        stance: [0.42, 0.11, -0.37],
++        adopted: [0, 0, 1],
++        exposure_cum: [0, 1, 2],
++      },
++      received: [
++        {
++          iteration: 1, source: 'io00', delta_stance: -0.31,
++          behavior: 'emerge', adopted: false, from_persuader: true,
++        },
++        {
++          iteration: 2, source: 'u05', delta_stance: -0.48,
++          behavior: 'emerge', adopted: true, from_persuader: false,
++        },
++      ],
++    },
++  },
++};
++
++;(useSimulationStore as unknown as jest.Mock).mockReturnValue({}); // reset
++
++function selectAgent(overrides = {}) {
++  (useSimulationStore as unknown as jest.Mock).mockReturnValue({
++    selectedAgent: createMockAgent({ id: 'u09', name: 'u09' }),
++    selectAgent: jest.fn(),
++    networkState: createMockNetworkState({
++      currentIteration: 2, maxIteration: 2, runNumber: 10, ...overrides,
++    }),
++    agentColors: mockAgentColors,
++  });
++}
++
++describe('AgentInspector simulation variables', () => {
++  beforeEach(() => {
++    jest.clearAllMocks();
++    selectAgent();
++  });
++
++  it('shows the current stance at the iteration on screen', async () => {
++    global.fetch = jest.fn().mockResolvedValue({
++      ok: true, json: async () => SIDECAR,
++    }) as unknown as typeof fetch;
++
++    render(<AgentInspector />);
++
++    expect(await screen.findByText('Simulation variables')).toBeInTheDocument();
++    // iteration 2 -> stance series [0.42, 0.11, -0.37]
++    expect(screen.getByText('-0.370')).toBeInTheDocument();
++    expect(screen.getByText('Current stance')).toBeInTheDocument();
++    // the timeline position is named, not implied
++    expect(screen.getByText(/iteration 2\/2/)).toBeInTheDocument();
++  });
++
++  it('renders the other variables at the same iteration with labels', async () => {
++    global.fetch = jest.fn().mockResolvedValue({
++      ok: true, json: async () => SIDECAR,
++    }) as unknown as typeof fetch;
++
++    render(<AgentInspector />);
++    await screen.findByText('Simulation variables');
++
++    expect(screen.getByText('Adopted')).toBeInTheDocument();
++    expect(screen.getByText('Exposures received')).toBeInTheDocument();
++    // scope to each variable's card (the element carrying the hover
++    // description): bare "2" also appears in the metrics block above
++    const adoptedCard = screen.getByText('Adopted').closest('[title]');
++    expect(adoptedCard?.textContent).toContain('yes');
++    const exposureCard = screen.getByText('Exposures received').closest('[title]');
++    expect(exposureCard?.textContent).toContain('2');
++  });
++
++  it('carries each variable description as the hover title', async () => {
++    global.fetch = jest.fn().mockResolvedValue({
++      ok: true, json: async () => SIDECAR,
++    }) as unknown as typeof fetch;
++
++    const { container } = render(<AgentInspector />);
++    await screen.findByText('Simulation variables');
++
++    const titled = Array.from(container.querySelectorAll('[title]'))
++      .map((el) => el.getAttribute('title') || '');
++    expect(titled.some((t) => t.includes('Current stance toward the policy')))
++      .toBe(true);
++    expect(titled.some((t) => t.includes('Cumulative number of influence')))
++      .toBe(true);
++  });
++
++  it('lists the influences the agent actually received', async () => {
++    global.fetch = jest.fn().mockResolvedValue({
++      ok: true, json: async () => SIDECAR,
++    }) as unknown as typeof fetch;
++
++    render(<AgentInspector />);
++    await screen.findByText('Simulation variables');
++
++    expect(screen.getByText(/Influences received \(2\)/)).toBeInTheDocument();
++    expect(screen.getByText('persuader')).toBeInTheDocument(); // io00 tag
++    expect(screen.getByText('adopted')).toBeInTheDocument();   // u05 tag
++  });
++
++  it('stays hidden when the run ships no sidecar (404)', async () => {
++    // run 11, not 10: the loader caches one answer per run for the whole
++    // session, so this test must use a run no earlier test has fetched.
++    selectAgent({ runNumber: 11, maxIteration: 0, currentIteration: 0 });
++    const fetchMock = jest.fn().mockResolvedValue({
++      ok: false, json: async () => ({}),
++    }) as unknown as typeof fetch;
++    global.fetch = fetchMock;
++
++    const { container } = render(<AgentInspector />);
++    // let the effect settle, then assert the panel was never added
++    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
++    expect(screen.queryByText('Simulation variables')).toBeNull();
++    expect(container.firstChild).not.toBeNull(); // the rest still renders
++  });
++});
 diff --git a/dashboard/app/layout.tsx b/dashboard/app/layout.tsx
 index b0c1984..f239807 100644
 --- a/dashboard/app/layout.tsx
@@ -21,11 +202,369 @@ index b0c1984..f239807 100644
  
  export const metadata: Metadata = {
    title: 'LLMxIO 3D',
+diff --git a/dashboard/components/AgentInspector.tsx b/dashboard/components/AgentInspector.tsx
+index e2b2c93..efbdd4e 100644
+--- a/dashboard/components/AgentInspector.tsx
++++ b/dashboard/components/AgentInspector.tsx
+@@ -1,9 +1,9 @@
+ 'use client';
+ 
+-import { X, User, Users, MessageSquare, TrendingUp, MessageCircle } from 'lucide-react';
++import { X, User, Users, MessageSquare, TrendingUp, MessageCircle, Activity } from 'lucide-react';
+ import { useSimulationStore } from '@/store/simulationStore';
+ import { motion, AnimatePresence } from 'framer-motion';
+-import { useEffect } from 'react';
++import { useEffect, useState } from 'react';
+ import { Agent } from '@/types/simulation';
+ import { parseNestedContent, hasNestedContent, getNestedDepth, ParsedContentPart } from '@/utils/contentParser';
+ import { censorPoliticalContent, censorUsername } from '@/utils/contentCensor';
+@@ -180,9 +180,148 @@ function findAgentByName(name: string, agents: Map<string, Agent>): Agent | unde
+   return undefined;
+ }
+ 
++/**
++ * Simulation variables (social-agents sidecar).
++ *
++ * The dashboard's Twitter schema has no opinion variables, so the
++ * exporter also ships `agent_variables_50_repub_<run>.json`: one record
++ * per agent holding a time series per variable (index i = the population
++ * snapshot after period i, i.e. dashboard iteration i) plus the log of
++ * influence events the agent received. This panel is what makes a node
++ * description show the *simulation* and not only the tweet traffic --
++ * above all the agent's **current stance**, read at whatever iteration
++ * the timeline is currently showing.
++ *
++ * The file is optional, like the other per-run sidecars: for runs that do
++ * not have it (and for the upstream runs) the fetch 404s, the panel
++ * simply does not render, and nothing else changes.
++ */
++interface AgentVariableMeta {
++  key: string;
++  label: string;
++  unit?: string;
++  kind?: string;
++  chart?: boolean;
++  description: string;
++}
++
++interface ReceivedInfluence {
++  iteration: number;
++  source: string;
++  delta_stance: number;
++  behavior: string | null;
++  adopted: boolean;
++  from_persuader: boolean;
++}
++
++interface AgentVariableRecord {
++  agent_id: number;
++  role: string;
++  leaning: string;
++  profile: string;
++  degree: number;
++  series: Record<string, number[]>;
++  received: ReceivedInfluence[];
++}
++
++interface AgentVariablesFile {
++  run: number;
++  label: string;
++  n_agents: number;
++  n_periods: number;
++  iterations: number[];
++  iteration_labels: string[];
++  variables: AgentVariableMeta[];
++  static_variables: AgentVariableMeta[];
++  agents: Record<string, AgentVariableRecord>;
++}
++
++const agentVariableCache = new Map<number, AgentVariablesFile | null>();
++
++async function loadAgentVariables(run: number): Promise<AgentVariablesFile | null> {
++  const cached = agentVariableCache.get(run);
++  if (cached !== undefined) return cached;
++  let data: AgentVariablesFile | null = null;
++  try {
++    const res = await fetch(`/data/v1/${run}/agent_variables_50_repub_${run}.json`);
++    data = res.ok ? ((await res.json()) as AgentVariablesFile) : null;
++  } catch {
++    data = null;
++  }
++  agentVariableCache.set(run, data);
++  return data;
++}
++
++/**
++ * Diverging stance colour: red = supports the policy (+1), blue = aligned
++ * with the persuaders' view (-1), slate at neutral. Matches the colour
++ * convention of the offline episode renderer (code/visualize.py).
++ */
++function stanceColor(stance: number): string {
++  const t = Math.max(-1, Math.min(1, Number.isFinite(stance) ? stance : 0));
++  const base = [148, 163, 184];
++  const target = t < 0 ? [96, 165, 250] : [248, 113, 113];
++  const w = Math.abs(t);
++  const rgb = base.map((b, i) => Math.round(b + (target[i] - b) * w));
++  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
++}
++
++function formatVariable(key: string, value: number): string {
++  if (key === 'adopted') return value ? 'yes' : 'no';
++  if (Number.isInteger(value)) return String(value);
++  return value.toFixed(3);
++}
++
++/** Inline stance trajectory with a marker at the iteration on screen. */
++function StanceSparkline({ values, currentIteration }: { values: number[]; currentIteration: number }) {
++  const W = 240;
++  const H = 46;
++  const pad = 5;
++  const n = values.length;
++  if (n === 0) return null;
++  const x = (i: number) => pad + (n <= 1 ? 0 : (i * (W - 2 * pad)) / (n - 1));
++  const y = (v: number) => pad + ((1 - (Math.max(-1, Math.min(1, v)) + 1) / 2) * (H - 2 * pad));
++  const points = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
++  const ci = Math.max(0, Math.min(n - 1, currentIteration));
++  return (
++    <svg width={W} height={H} style={{ overflow: 'visible' }}>
++      <line
++        x1={pad} x2={W - pad} y1={y(0)} y2={y(0)}
++        stroke="rgba(148,163,184,0.35)" strokeWidth="1" strokeDasharray="3 3"
++      />
++      <polyline
++        points={points} fill="none"
++        stroke="rgba(148,163,184,0.8)" strokeWidth="1.5"
++      />
++      <circle cx={x(0)} cy={y(values[0])} r="2.5" fill="rgba(148,163,184,0.9)" />
++      <circle
++        cx={x(ci)} cy={y(values[ci])} r="4"
++        fill={stanceColor(values[ci])} stroke="#0f172a" strokeWidth="1.5"
++      />
++    </svg>
++  );
++}
++
+ export function AgentInspector() {
+   const { selectedAgent, selectAgent, networkState, agentColors } = useSimulationStore();
+-  
++
++  // Per-agent opinion variables for this run (null when the run has no
++  // sidecar -- see loadAgentVariables).
++  const [agentVariables, setAgentVariables] = useState<AgentVariablesFile | null>(null);
++
++  useEffect(() => {
++    const run = networkState?.runNumber;
++    if (run == null) {
++      setAgentVariables(null);
++      return;
++    }
++    let cancelled = false;
++    loadAgentVariables(run).then((data) => {
++      if (!cancelled) setAgentVariables(data);
++    });
++    return () => { cancelled = true; };
++  }, [networkState?.runNumber]);
++
+   // Lock body scroll when modal is open
+   useEffect(() => {
+     if (selectedAgent) {
+@@ -207,7 +346,44 @@ export function AgentInspector() {
+   }, [selectedAgent]);
+   
+   if (!selectedAgent || !networkState) return null;
+-  
++
++  // ---- simulation variables for the selected agent --------------------
++  const agentVars = agentVariables?.agents[selectedAgent.id];
++  const mutableVars = agentVariables?.variables ?? [];
++  const staticVars = agentVariables?.static_variables ?? [];
++  const stanceSeries: number[] = agentVars?.series?.stance ?? [];
++  const clampedIter = Math.max(
++    0,
++    Math.min(Math.max(0, stanceSeries.length - 1), networkState.currentIteration)
++  );
++  const stanceNow = stanceSeries.length ? stanceSeries[clampedIter] : 0;
++  const stanceStart = stanceSeries.length ? stanceSeries[0] : 0;
++  const stanceDelta = stanceNow - stanceStart;
++  const iterationLabel =
++    agentVariables?.iteration_labels?.[clampedIter] ?? `t${networkState.currentIteration}`;
++  const seriesAt = (key: string): number | undefined => {
++    const series = agentVars?.series?.[key];
++    if (!series || series.length === 0) return undefined;
++    return series[Math.max(0, Math.min(series.length - 1, networkState.currentIteration))];
++  };
++  const stanceWord =
++    stanceNow <= -0.5 ? 'aligned with the persuaders'
++      : stanceNow < 0 ? 'leaning against the policy'
++        : stanceNow < 0.5 ? 'essentially neutral'
++          : 'supports the policy';
++  const staticValue = (key: string): string => {
++    if (!agentVars) return '';
++    switch (key) {
++      case 'role': return agentVars.role;
++      case 'degree': return String(agentVars.degree);
++      case 'leaning': return agentVars.leaning;
++      case 'initial_stance':
++        return stanceSeries.length ? stanceSeries[0].toFixed(3) : '';
++      case 'profile': return agentVars.profile;
++      default: return '';
++    }
++  };
++
+   // Get agent's recent activity
+   const recentTweets = selectedAgent.tweets
+     .filter(t => t.iteration <= networkState.currentIteration)
+@@ -380,6 +556,145 @@ export function AgentInspector() {
+                 </div>
+               </div>
+           
++              {/* Simulation variables (social-agents sidecar) -- the part
++                  of this description that is the *simulation* rather than
++                  the tweet traffic. Read at the iteration on screen, so
++                  scrubbing the timeline updates it. */}
++              {agentVars && (
++                <div className="p-6 border-b border-slate-600/20" style={{
++                  background: 'linear-gradient(135deg, rgba(244, 114, 182, 0.06) 0%, rgba(56, 189, 248, 0.06) 100%)'
++                }}>
++                  <div className="flex items-center gap-2 mb-5">
++                    <div className="p-2 rounded-lg" style={{
++                      background: 'linear-gradient(135deg, rgba(244, 114, 182, 0.2) 0%, rgba(56, 189, 248, 0.2) 100%)',
++                      border: '1px solid rgba(244, 114, 182, 0.3)'
++                    }}>
++                      <Activity className="w-4 h-4 text-pink-300" />
++                    </div>
++                    <h3 className="text-sm font-semibold text-slate-200 tracking-wide">
++                      Simulation variables
++                    </h3>
++                    <span className="ml-auto text-xs text-slate-400 mono">
++                      {iterationLabel} · iteration {networkState.currentIteration}/{networkState.maxIteration}
++                    </span>
++                  </div>
++
++                  {/* Current stance -- the variable the whole model is about */}
++                  {stanceSeries.length > 0 && (
++                    <div className="p-4 rounded-lg mb-4" style={{
++                      background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.7) 0%, rgba(30, 41, 59, 0.5) 100%)',
++                      border: '1px solid rgba(148, 163, 184, 0.12)'
++                    }}>
++                      <div className="flex items-end justify-between gap-4 flex-wrap">
++                        <div>
++                          <div
++                            className="text-xs text-slate-400 font-medium mb-1 cursor-help"
++                            title={mutableVars.find(v => v.key === 'stance')?.description}
++                          >
++                            Current stance <span className="text-slate-500">· [-1, +1]</span>
++                          </div>
++                          <div className="text-3xl font-semibold" style={{ color: stanceColor(stanceNow) }}>
++                            {stanceNow > 0 ? '+' : ''}{stanceNow.toFixed(3)}
++                          </div>
++                          <div className="text-xs text-slate-400 mt-1">
++                            {stanceWord} · <span style={{ color: stanceColor(stanceDelta) }}>
++                              Δ {stanceDelta >= 0 ? '+' : ''}{stanceDelta.toFixed(3)} since t0
++                            </span>
++                          </div>
++                        </div>
++                        <StanceSparkline
++                          values={stanceSeries}
++                          currentIteration={networkState.currentIteration}
++                        />
++                      </div>
++                      <div className="text-[10px] text-slate-500 mt-2">
++                        Grey line: this agent&apos;s stance at every iteration
++                        (red = supports the policy, blue = aligned with the
++                        persuaders). Marker = the iteration on screen.
++                      </div>
++                    </div>
++                  )}
++
++                  {/* The other mutable variables at this iteration */}
++                  <div className="grid grid-cols-2 gap-3">
++                    {mutableVars.filter(v => v.key !== 'stance').map(v => {
++                      const value = seriesAt(v.key);
++                      return (
++                        <div
++                          key={v.key}
++                          className="p-3 rounded-lg cursor-help"
++                          title={v.description}
++                          style={{
++                            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.6) 0%, rgba(30, 41, 59, 0.4) 100%)',
++                            border: '1px solid rgba(148, 163, 184, 0.1)'
++                          }}
++                        >
++                          <div className="text-xs text-slate-400 mb-1">{v.label}</div>
++                          <div className={`text-lg font-semibold ${v.key === 'adopted' && value === 1 ? 'text-emerald-300' : 'text-slate-100'}`}>
++                            {value === undefined ? '—' : formatVariable(v.key, value)}
++                          </div>
++                          {v.unit && <div className="text-[10px] text-slate-500">{v.unit}</div>}
++                        </div>
++                      );
++                    })}
++                  </div>
++
++                  {/* Static context of the agent */}
++                  <details className="mt-4">
++                    <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-200">
++                      Agent context
++                    </summary>
++                    <div className="mt-2 space-y-1 text-xs">
++                      {staticVars.map(v => (
++                        <div key={v.key} className="text-slate-300 cursor-help" title={v.description}>
++                          <span className="text-slate-400">{v.label}: </span>
++                          {staticValue(v.key)}
++                        </div>
++                      ))}
++                    </div>
++                  </details>
++
++                  {/* What actually reached (and moved) this agent */}
++                  {agentVars.received.length > 0 && (
++                    <details className="mt-3">
++                      <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-200">
++                        Influences received ({agentVars.received.length})
++                      </summary>
++                      <div className="mt-2 space-y-1">
++                        {agentVars.received.slice(-8).reverse().map((e, i) => (
++                          <div key={`recv-${e.iteration}-${i}`} className="text-xs flex items-center gap-2 flex-wrap">
++                            <span className="text-slate-500 mono">t{e.iteration}</span>
++                            <span className="text-slate-300">{censorUsername(e.source)}</span>
++                            <span className={e.behavior === 'accept' ? 'text-emerald-300' : 'text-slate-500'}>
++                              {e.behavior ?? '—'}
++                            </span>
++                            <span className="mono" style={{ color: stanceColor(e.delta_stance) }}>
++                              Δ {e.delta_stance > 0 ? '+' : ''}{e.delta_stance.toFixed(3)}
++                            </span>
++                            {e.from_persuader && (
++                              <span className="px-1.5 rounded bg-purple-500/20 text-purple-200 text-[10px]">
++                                persuader
++                              </span>
++                            )}
++                            {e.adopted && (
++                              <span className="px-1.5 rounded bg-emerald-500/20 text-emerald-200 text-[10px]">
++                                adopted
++                              </span>
++                            )}
++                          </div>
++                        ))}
++                      </div>
++                    </details>
++                  )}
++
++                  <div className="text-[10px] text-slate-500 mt-3">
++                    Values are exact, as recorded in the episode trajectory;
++                    hover a variable for its definition. Definitions travel
++                    with the data (code/export_dashboard.py).
++                  </div>
++                </div>
++              )}
++
+               {/* Activity Feed - Scrollable (Adjusted) */}
+               {/* Use flex-1 to take remaining space and scroll internally */}
+               <div className="overflow-y-auto flex-1 scrollbar-thin scrollbar-track-slate-800 scrollbar-thumb-slate-600 scroll-smooth" style={{ minHeight: 0 }}>
 diff --git a/dashboard/components/SettingsPanel.tsx b/dashboard/components/SettingsPanel.tsx
-index 04bec73..5aad393 100644
+index 04bec73..d5cecff 100644
 --- a/dashboard/components/SettingsPanel.tsx
 +++ b/dashboard/components/SettingsPanel.tsx
-@@ -36,10 +36,10 @@ export function SettingsPanel() {
+@@ -36,10 +36,16 @@ export function SettingsPanel() {
                      Collective Decision-Making (Run 1)
                    </option>
                    <option value="8" style={{ background: '#0f172a', color: '#f1f5f9' }}>
@@ -35,11 +574,17 @@ index 04bec73..5aad393 100644
                    <option value="9" style={{ background: '#0f172a', color: '#f1f5f9' }}>
 -                    Collective Decision-Making (Run 3)
 +                    RL Persuasion — social-agents (judge)
++                  </option>
++                  <option value="10" style={{ background: '#0f172a', color: '#f1f5f9' }}>
++                    RL Persuasion — C7 cascade (stance-aware)
++                  </option>
++                  <option value="11" style={{ background: '#0f172a', color: '#f1f5f9' }}>
++                    RL Persuasion — C8 exposure (stance-less)
                    </option>
                    <option value="4" style={{ background: '#0f172a', color: '#f1f5f9' }}>
                      Teammate Awareness (Run 1)
 diff --git a/dashboard/store/simulationStore.ts b/dashboard/store/simulationStore.ts
-index 7a4b041..a4abec4 100644
+index 7a4b041..8b16ae6 100644
 --- a/dashboard/store/simulationStore.ts
 +++ b/dashboard/store/simulationStore.ts
 @@ -60,7 +60,7 @@ interface SimulationStore {
@@ -47,15 +592,15 @@ index 7a4b041..a4abec4 100644
    // Initial state
    networkState: null,
 -  currentRunNumber: 7,
-+  currentRunNumber: 9,
++  currentRunNumber: 10,
    isPlaying: false,
    playbackSpeed: 1,
    selectedAgent: null,
 diff --git a/dashboard/utils/dataParser.ts b/dashboard/utils/dataParser.ts
-index ebb873d..325b65b 100644
+index ebb873d..d2d0158 100644
 --- a/dashboard/utils/dataParser.ts
 +++ b/dashboard/utils/dataParser.ts
-@@ -265,8 +265,8 @@ export async function loadSimulationData(
+@@ -265,13 +265,15 @@ export async function loadSimulationData(
      { fileNum: 3, type: 'repub', folderName: 'v2_hashtag_teammateaware', filePrefix: 'v2_hashtag', suffix: '_new' }, // Run 6
      // Collective Decision Making scenarios - v3_hashtag_collectivedecisionmaking folder, v3_hashtag files
      { fileNum: 1, type: 'repub', folderName: 'v3_hashtag_collectivedecisionmaking', filePrefix: 'v3_hashtag' }, // Run 7
@@ -63,6 +608,30 @@ index ebb873d..325b65b 100644
 -    { fileNum: 3, type: 'repub', folderName: 'v3_hashtag_collectivedecisionmaking', filePrefix: 'v3_hashtag' }, // Run 9
 +    { fileNum: 8, type: 'repub' }, // Run 8 — social-agents random policy
 +    { fileNum: 9, type: 'repub' }, // Run 9 — social-agents persuasion (legacy path data/v1/9/)
++    { fileNum: 10, type: 'repub' }, // Run 10 — social-agents C7 (cascade mechanism)
++    { fileNum: 11, type: 'repub' }, // Run 11 — social-agents C8 (exposure mechanism)
    ];
    
    const mapping = runMapping[runNumber - 1];
+   if (!mapping) {
+-    throw new Error(`Invalid run number: ${runNumber}. Must be between 1 and 9.`);
++    throw new Error(`Invalid run number: ${runNumber}. Must be between 1 and 11.`);
+   }
+   
+   const { fileNum, type, folderName, filePrefix, suffix } = mapping;
+diff --git a/dashboard/utils/precomputedMetrics.ts b/dashboard/utils/precomputedMetrics.ts
+index a2d062c..c1f9255 100644
+--- a/dashboard/utils/precomputedMetrics.ts
++++ b/dashboard/utils/precomputedMetrics.ts
+@@ -74,7 +74,10 @@ function getRunDataPath(runNumber: number): string {
+   
+   const folderName = runMapping[runNumber - 1];
+   if (!folderName) {
+-    throw new Error(`Invalid run number: ${runNumber}. Must be between 1 and 9.`);
++    // Runs that ship no narrative/hashtag sidecar (the social-agents runs
++    // 8-11) have none: return a path that 404s so the loaders above can
++    // return null quietly instead of logging an error on every load.
++    return `_none/${runNumber}`;
+   }
+   
+   // Get the file number within the folder (1, 2, or 3)

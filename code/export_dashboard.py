@@ -95,6 +95,229 @@ def _write_personas(personas_dir: Path, names, persuader_ids,
           io_repub, ["Name", "Summary"])
 
 
+# ------------------------------------------------------- agent variables
+
+# The dashboard's Twitter schema has no opinion variables, so a node
+# description cannot say what our simulation is actually about. This
+# sidecar carries them: one record per agent holding a time series per
+# variable (index ``i`` = the population snapshot after period ``i``,
+# i.e. iteration ``i`` on the dashboard's timeline) plus the log of
+# influence events that agent received. ``AgentInspector.tsx`` (see
+# code/dashboard/llmxio_integration.patch) fetches it and renders it, so
+# opening a node shows that agent's variables **at the iteration the
+# timeline is currently showing** — most importantly its current stance.
+#
+# Every variable carries its own ``label``/``unit``/``description`` so
+# the dashboard renders a self-documenting panel: the same
+# "descriptions travel with the numbers" rule as METRICS.md.
+
+_VARIABLES = [
+    {
+        "key": "stance",
+        "label": "Current stance",
+        "unit": "[-1, +1]",
+        "kind": "continuous",
+        "chart": True,
+        "description": (
+            "The agent's opinion position on the policy after this "
+            "period. -1 = fully aligned with the persuaders' view (the "
+            "policy should be rejected), +1 = fully supports the policy, "
+            "0 = neutral. Mutable: it moves by the judged persuasion "
+            "increment of every influence the agent receives, so it can "
+            "change in every period."
+        ),
+    },
+    {
+        "key": "adopted",
+        "label": "Adopted (view flipped)",
+        "unit": "0 / 1",
+        "kind": "binary",
+        "chart": False,
+        "description": (
+            "1 once the agent's preference state has flipped to the "
+            "persuaders' side (it crossed the adoption threshold). "
+            "Sticky: once 1 it stays 1 for the rest of the episode, so "
+            "this is 'has ever adopted', not 'adopted this period'."
+        ),
+    },
+    {
+        "key": "exposure_cum",
+        "label": "Influences received",
+        "unit": "events (cumulative)",
+        "kind": "count",
+        "chart": True,
+        "description": (
+            "How many influence events have reached this agent so far "
+            "(from persuaders or from other agents it is connected to). "
+            "Each one is a judged persuasion attempt whose increment can "
+            "move the stance."
+        ),
+    },
+    {
+        "key": "influence_cum",
+        "label": "Net stance push received",
+        "unit": "sum of Δstance (cumulative)",
+        "kind": "continuous",
+        "chart": True,
+        "description": (
+            "Sum of the signed persuasion increments this agent has "
+            "received. Negative = pushed toward the persuaders' view. "
+            "Differs from the stance change itself, which is clipped to "
+            "[-1, +1] and gated by the acceptance rule."
+        ),
+    },
+    {
+        "key": "from_persuader_cum",
+        "label": "Influences from a persuader",
+        "unit": "events (cumulative)",
+        "kind": "count",
+        "chart": False,
+        "description": (
+            "The subset of influences that came directly from one of the "
+            "5 RL persuaders rather than from a converted crowd agent."
+        ),
+    },
+    {
+        "key": "adopt_events_cum",
+        "label": "Adoption events",
+        "unit": "events (cumulative)",
+        "kind": "count",
+        "chart": False,
+        "description": (
+            "How many individual influence events this agent adopted on "
+            "(normally 0 or 1: the event that flipped it)."
+        ),
+    },
+]
+
+_STATIC_VARIABLES = [
+    {
+        "key": "role",
+        "label": "Role",
+        "description": (
+            "persuader = one of the RL-controlled campaign accounts that "
+            "the policy drives; organic = a crowd agent that can only be "
+            "influenced."
+        ),
+    },
+    {
+        "key": "degree",
+        "label": "Network degree",
+        "description": (
+            "Number of neighbours in the interaction graph, i.e. how many "
+            "agents can directly influence it (and how many it can pass a "
+            "message on to)."
+        ),
+    },
+    {
+        "key": "initial_stance",
+        "label": "Initial stance",
+        "description":
+            "The agent's stance before any influence (period t0).",
+    },
+    {
+        "key": "leaning",
+        "label": "Persona leaning",
+        "description":
+            "The synthetic persona's political leaning, used by the "
+            "persuader policy as part of the target observation.",
+    },
+    {
+        "key": "profile",
+        "label": "Persona profile",
+        "description": (
+            "The synthetic profile used to condition message generation "
+            "and judge scoring for this agent."
+        ),
+    },
+]
+
+
+def _write_agent_variables(out_dir: Path, run_file_num: int, label: str,
+                           traj_path: Path, traj: dict, names, persuader_ids,
+                           profiles) -> Path:
+    """Write ``agent_variables_50_repub_<n>.json`` next to the two CSVs."""
+    periods = traj["periods"]
+    n = int(traj["agent_num"])
+    iters = list(range(len(periods)))
+    stances = [[float(x) for x in p["after"]["stances"]] for p in periods]
+    adopted = [set(int(a) for a in p["after"]["adopted"]) for p in periods]
+    degree = {i: 0 for i in range(n)}
+    for node, neighbors in traj["adjacency"]:
+        degree[int(node)] = len(neighbors)
+
+    series_keys = ("exposure_cum", "influence_cum", "from_persuader_cum",
+                   "adopt_events_cum")
+    series = {aid: {k: [0] * len(periods) for k in series_keys}
+              for aid in range(n)}
+    received: dict[int, list] = {aid: [] for aid in range(n)}
+
+    for i, per in enumerate(periods):
+        if i:  # carry the running totals forward, then add this period's
+            for aid in range(n):
+                for k in series_keys:
+                    series[aid][k][i] = series[aid][k][i - 1]
+        for e in per["events"]:
+            s, t = int(e["source"]), int(e["target"])
+            if not (0 <= t < n):
+                continue
+            d = float(e.get("delta_stance") or 0.0)
+            adopted_event = bool(e.get("adopted")) or bool(
+                e.get("reached_adoption_threshold"))
+            series[t]["exposure_cum"][i] += 1
+            series[t]["influence_cum"][i] += d
+            if s in persuader_ids:
+                series[t]["from_persuader_cum"][i] += 1
+            if adopted_event:
+                series[t]["adopt_events_cum"][i] += 1
+            received[t].append({
+                "iteration": i,
+                "source": names.get(s, ""),
+                "delta_stance": round(d, 4),
+                "behavior": e.get("behavior"),
+                "adopted": adopted_event,
+                "from_persuader": s in persuader_ids,
+            })
+
+    agents = {}
+    for aid in range(n):
+        prof = profiles[aid] if aid < len(profiles) else "A social user."
+        agents[names[aid]] = {
+            "agent_id": aid,
+            "role": "persuader" if aid in persuader_ids else "organic",
+            "leaning": "Republican (IO)" if aid in persuader_ids
+                       else "Democrat",
+            "profile": prof,
+            "degree": degree[aid],
+            "series": {
+                "stance": [round(stances[i][aid], 4) for i in iters],
+                "adopted": [1 if aid in adopted[i] else 0 for i in iters],
+                "influence_cum": [round(x, 4)
+                                  for x in series[aid]["influence_cum"]],
+                **{k: series[aid][k] for k in series_keys
+                   if k != "influence_cum"},
+            },
+            "received": received[aid],
+        }
+
+    payload = {
+        "run": run_file_num,
+        "label": label,
+        "source": str(traj_path),
+        "n_agents": n,
+        "n_periods": traj.get("n_periods"),
+        "iterations": iters,
+        "iteration_labels": [p["after"].get("tag", f"t{i}")
+                             for i, p in enumerate(periods)],
+        "variables": _VARIABLES,
+        "static_variables": _STATIC_VARIABLES,
+        "agents": agents,
+    }
+    path = out_dir / f"agent_variables_50_repub_{run_file_num}.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
+    return path
+
+
 # ---------------------------------------------------------------- export
 
 def export(traj_path: Path, data_dir: Path, run_file_num: int,
@@ -212,6 +435,12 @@ def export(traj_path: Path, data_dir: Path, run_file_num: int,
         w.writerows(rows)
     _finish(memory_path)
 
+    # per-agent opinion variables (stance, exposures, influence log) that
+    # the dashboard's Twitter schema has no room for
+    vars_path = _write_agent_variables(
+        out_dir, run_file_num, label, Path(traj_path), traj, names,
+        persuader_ids, profiles)
+
     if write_personas:
         _write_personas(data_dir / "v1" / "personas", names,
                         persuader_ids, profiles)
@@ -221,6 +450,7 @@ def export(traj_path: Path, data_dir: Path, run_file_num: int,
         "run_file_num": run_file_num,
         "follow_log": str(follow_path),
         "memory": str(memory_path),
+        "agent_variables": str(vars_path),
         "n_agents": n, "n_persuaders": len(persuader_ids),
         "n_follows": n_follows, "n_tweets": len(rows),
         "n_retweets": sum(1 for r in rows if r["Type"] == "retweet"),
