@@ -249,6 +249,12 @@ class PPOConfig:
     paired_eval_episodes: int = 20
     output_dir: str = "output/ppo"
     device: str | None = None  # None -> auto (cuda if available)
+    # instrumentation: append-only JSONL traces of the immediate
+    # variables (per-decision persuasiveness/goal-align/reward, per-period
+    # population state, per-hop diffusion events). None = off; a path =
+    # write there. Purely observational: no effect on dynamics.
+    trace_dir: str | None = None
+    trace_episodes: int = 0  # rollout episodes traced per iteration (0=all)
 
     def n_actions(self) -> int:
         # learned compound action space
@@ -275,6 +281,21 @@ def _fmt(x) -> str:
 # Rollout collection
 # ----------------------------------------------------------------------
 
+def _llm_model() -> str | None:
+    """The configured LLM model id, for per-iteration provenance.
+
+    Recorded with every iteration so a results table can never be
+    attributed to the wrong model months later (the gateway serves more
+    than one, and the .env is not versioned).
+    """
+    try:
+        from .config import GLOBAL_LLM_CONFIG as C
+
+        return C.model
+    except Exception:  # noqa: BLE001 - provenance must never break training
+        return None
+
+
 def collect_episode(
     env: ElitePersuaderEnv,
     policy: ActorCritic,
@@ -282,6 +303,8 @@ def collect_episode(
     seed: int,
     greedy: bool = False,
     stats: list | None = None,
+    trace=None,
+    trace_meta: dict | None = None,
 ):
     """Run one episode; returns (obs, actions, rewards, masks, infos).
 
@@ -296,11 +319,22 @@ def collect_episode(
     decision: ``{strategy_index, reward, persuasiveness}``. This feeds
     the Tier-5 instrumentation (per-strategy value table, judge-score
     distribution) without changing the return signature.
+
+    If `trace` (a `code.run_trace.TraceWriter`) is given, the episode's
+    immediate variables are persisted — one record per decision
+    (steps), per period, per diffusion event, plus an episode summary.
+    `trace_meta` supplies iteration/episode/seed for those records.
+    Tracing is a pure observer: it never touches env state or rewards.
     """
+    from .strategy import describe
+
     n_persuaders = int(getattr(env, "n_persuaders", 1))
     obs_list, act_list, rew_list, mask_list = [], [], [], []
     obs, info = env.reset(seed=seed)
     done = False
+    step_i = 0
+    ep_n_events = ep_n_persuader_events = ep_n_accept = ep_n_idle = 0
+    ep_n_accept_all = 0
     while not done:
         mask = info.get("action_mask")
         if mask is None:
@@ -348,7 +382,110 @@ def collect_episode(
                         "goal_align": rec.get("goal_align"),
                     }
                 )
+        if trace is not None:
+            meta = dict(trace_meta or {})
+            rew_arr = np.atleast_1d(reward)
+            act_arr = np.atleast_1d(actions)
+            mask = info.get("action_mask")
+            mask_open = (
+                float(np.count_nonzero(mask)) / max(1, len(mask))
+                if mask is not None else None
+            )
+            n_candidates = len(info.get("candidates") or ())
+            events = list(info.get("period_events") or ())
+            persuader_ids = set(getattr(env, "persuader_ids", ()) or ())
+            now = time.time()
+            actions_recs = info.get("persuader_actions", [])
+            acc_all = sum(
+                1 for e in events if e.get("behavior") in ("accept", "emerge")
+            )
+            acc_pers = sum(
+                1 for e in events
+                if e.get("behavior") in ("accept", "emerge")
+                and e.get("source_agent") in persuader_ids
+            )
+            step_records = []
+            for pidx, rec in enumerate(actions_recs):
+                spec = rec.get("strategy")
+                step_records.append({
+                    **meta,
+                    "step": step_i,
+                    "period": info.get("period"),
+                    "persuader": rec.get("persuader"),
+                    "action": (
+                        int(act_arr[pidx]) if pidx < len(act_arr) else None
+                    ),
+                    "strategy_index": rec.get("strategy_index"),
+                    "strategy": spec if isinstance(spec, str) else describe(spec),
+                    "target": rec.get("target"),
+                    "message": rec.get("message"),
+                    "persuasiveness": rec.get("persuasiveness"),
+                    "judge_src": rec.get("judge_src"),
+                    "goal_align": rec.get("goal_align"),
+                    "reward": (
+                        float(rew_arr[pidx]) if pidx < len(rew_arr) else None
+                    ),
+                    "n_candidates": n_candidates,
+                    "mask_open_frac": mask_open,
+                    "mechanism": info.get("mechanism"),
+                    "ts": now,
+                })
+                if rec.get("target") is None:
+                    ep_n_idle += 1
+            trace.write_many("steps", step_records)
+            trace.write("periods", {
+                **meta,
+                "step": step_i,
+                "period": info.get("period"),
+                "mechanism": info.get("mechanism"),
+                "mean_stance": info.get("mean_stance"),
+                "n_adopted": info.get("n_adopted"),
+                "n_accept": acc_pers,
+                "n_accept_all": acc_all,
+                "n_persuader_events": info.get("n_persuader_events"),
+                "n_events": len(events),
+                "n_candidates": n_candidates,
+                "mask_open_frac": mask_open,
+                "period_reward_sum": float(rew_arr.sum()),
+                "period_reward_mean": float(rew_arr.mean()),
+                "ts": now,
+            })
+            trace.write_many("events", [
+                {
+                    **meta,
+                    "step": step_i,
+                    "source_is_persuader": (
+                        event.get("source_agent") in persuader_ids
+                    ),
+                    "ts": now,
+                    **event,
+                }
+                for event in events
+            ])
+            ep_n_events += len(events)
+            ep_n_persuader_events += len(
+                [e for e in events if e.get("source_agent") in persuader_ids]
+            )
+            ep_n_accept += acc_pers
+            ep_n_accept_all += acc_all
+        step_i += 1
         done = terminated or truncated
+    if trace is not None:
+        trace.write("episodes", {
+            **(trace_meta or {}),
+            "mechanism": info.get("mechanism"),
+            "steps": step_i,
+            "episode_reward": float(np.sum(rew_list)) if rew_list else 0.0,
+            "mean_stance": info.get("mean_stance"),
+            "n_adopted": info.get("n_adopted"),
+            "n_events": ep_n_events,
+            "n_persuader_events": ep_n_persuader_events,
+            "n_accept": ep_n_accept,
+            "n_accept_all": ep_n_accept_all,
+            "n_idle_actions": ep_n_idle,
+            "n_transitions": len(rew_list),
+            "ts": time.time(),
+        })
     return (
         np.asarray(obs_list, dtype=np.float32),
         np.asarray(act_list, dtype=np.int64),
@@ -392,6 +529,7 @@ class PPOTrainer:
         self.config = config or PPOConfig()
         self.env_factory = env_factory
         self.device = resolve_device(self.config.device)
+        self._trace: object | None = None  # set by train() when tracing
         torch.manual_seed(self.config.seed)
         np.random.seed(self.config.seed)
 
@@ -481,6 +619,21 @@ class PPOTrainer:
             # guard against the policy learning to exploit the judge
             "saturated_frac": float((arr >= 0.95).mean()),
         }
+
+    def _trace_for(self, episode_index: int):
+        """TraceWriter for this rollout episode, or None.
+
+        `trace_episodes` > 0 caps how many episodes per iteration are
+        traced (the first N, deterministically), so a long campaign can
+        bound trace size without losing per-iteration coverage.
+        """
+        trace = self._trace
+        if trace is None:
+            return None
+        cap = int(self.config.trace_episodes or 0)
+        if cap > 0 and episode_index >= cap:
+            return None
+        return trace
 
     def _accumulate_stats(self, stats: list) -> None:
         for s in stats:
@@ -577,7 +730,13 @@ class PPOTrainer:
             )
             stats: list = []
             obs, act, rew, mask, info = collect_episode(
-                self.env, self.policy, self.device, seed, stats=stats
+                self.env, self.policy, self.device, seed, stats=stats,
+                trace=self._trace_for(k),
+                trace_meta={
+                    "iteration": self._iteration,
+                    "episode": k,
+                    "seed": seed,
+                },
             )
             self._accumulate_stats(stats)
             with torch.no_grad():
@@ -629,7 +788,13 @@ class PPOTrainer:
             policy = self._worker_policies[k % n_workers]
             stats: list = []
             out = collect_episode(
-                env, policy, torch.device("cpu"), seed, stats=stats
+                env, policy, torch.device("cpu"), seed, stats=stats,
+                trace=self._trace_for(k),
+                trace_meta={
+                    "iteration": self._iteration,
+                    "episode": k,
+                    "seed": seed,
+                },
             )
             return (*out, stats)
 
@@ -819,6 +984,28 @@ class PPOTrainer:
                 resume_from, start_iter - 1, cfg.iterations,
             )
 
+        if cfg.trace_dir:
+            from .run_trace import TraceWriter
+
+            self._trace = TraceWriter(
+                cfg.trace_dir,
+                meta={
+                    "mechanism": getattr(self.env, "mechanism", None),
+                    "start_iteration": start_iter,
+                    "resumed": resume_from is not None,
+                    "config": asdict(cfg),
+                    "persuader_ids": list(
+                        getattr(self.env, "persuader_ids", ()) or ()
+                    ),
+                },
+                fresh=resume_from is None,
+            )
+            logger.info(
+                "tracing immediate variables -> %s (%s episodes/iter)",
+                cfg.trace_dir,
+                cfg.trace_episodes if cfg.trace_episodes else "all",
+            )
+
         self._iteration = start_iter - 1
         # keep elapsed_s monotonic across a resume
         prev_elapsed = float(history[-1].get("elapsed_s", 0.0)) if history else 0.0
@@ -846,6 +1033,8 @@ class PPOTrainer:
             )
             rec = {
                 "iteration": iteration,
+                "mechanism": getattr(self.env, "mechanism", None),
+                "llm_model": _llm_model(),
                 "mean_episode_reward": mean_reward,
                 "mean_final_stance": mean_stance,
                 "mean_adopted": float(
@@ -944,6 +1133,9 @@ class PPOTrainer:
             )
         )
         self._write_strategy_value(out_dir)
+        if self._trace is not None:
+            self._trace.close()
+            logger.info("trace closed (%s)", cfg.trace_dir)
         return self.policy, history
 
     # ------------------------------------------------------------------

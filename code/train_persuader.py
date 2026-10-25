@@ -416,6 +416,23 @@ def main() -> int:
         help="flat reward per persuader-sourced adoption; recommended "
              ">0 for exposure mode where stance deltas are zero",
     )
+    parser.add_argument(
+        "--trace", action="store_true",
+        help="record the IMMEDIATE variables (per-decision "
+             "persuasiveness/goal-align/reward, per-period population "
+             "state, per-hop diffusion events, episode summaries) as "
+             "JSONL under <output-dir>/trace for code/live_monitor.py. "
+             "Purely observational — dynamics and rewards are unchanged.",
+    )
+    parser.add_argument(
+        "--trace-dir", type=str, default=None,
+        help="override the trace directory (default <output-dir>/trace)",
+    )
+    parser.add_argument(
+        "--trace-episodes", type=int, default=0,
+        help="rollout episodes traced per iteration (0 = all); a cap "
+             "bounds trace size on long campaigns",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -474,6 +491,12 @@ def main() -> int:
     if args.mode == "mock":
         cfg.output_dir = str(Path(cfg.output_dir) / "mock")
 
+    # instrumentation (after output_dir is final, so the default trace
+    # directory lands next to the run's other artifacts)
+    if args.trace or args.trace_dir:
+        cfg.trace_dir = args.trace_dir or str(Path(cfg.output_dir) / "trace")
+    cfg.trace_episodes = max(0, int(args.trace_episodes))
+
     print(
         f"[*] PPO config: agents={cfg.agent_num} persuaders={cfg.n_persuaders} "
         f"topology={cfg.topology} periods={cfg.n_periods} "
@@ -485,6 +508,9 @@ def main() -> int:
           f"(PERSUASION_STRATEGY_SPACE="
           f"{os.environ.get('PERSUASION_STRATEGY_SPACE', 'v1')}), "
           f"judge={args.judge}")
+    if cfg.trace_dir:
+        print(f"[*] tracing immediate variables -> {cfg.trace_dir} "
+              f"({cfg.trace_episodes or 'all'} episodes/iteration)")
 
     # reward model: Bradley-Terry pairwise judge (optional) ------------
     judge_fn = None

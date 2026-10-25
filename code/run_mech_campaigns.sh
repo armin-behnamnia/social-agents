@@ -40,6 +40,12 @@
 # Usage:  bash code/run_mech_campaigns.sh            # both, serially
 #         bash code/run_mech_campaigns.sh cascade    # only C7
 #         bash code/run_mech_campaigns.sh exposure   # only C8
+#         bash code/run_mech_campaigns.sh resume-both  # resume C7 + C8
+#
+# Both arms run with --trace, so code/live_monitor.py can show every
+# immediate variable (per-decision persuasiveness, per-period population
+# state, per-hop diffusion events) with exact values and charts while the
+# campaign is still running.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -71,26 +77,50 @@ COMMON="--mode live --iterations 300 --episodes-per-iter 32 \
   --agent-num 50 --n-persuaders 5 --topology erdos_renyi \
   --paired-eval-every 20 --paired-eval-episodes 50"
 
+# Immediate-variable tracing -> <output-dir>/trace/{steps,periods,events,
+# episodes}.jsonl, consumed by code/live_monitor.py (see METRICS.md for
+# every recorded variable). Purely observational: rewards, dynamics and
+# RNG draws are untouched (pinned by code/tests/test_run_trace.py::
+# TestEpisodeTracing::test_tracing_is_pure), so a traced run stays
+# comparable to campaign 6. Add --trace-episodes N to cap the volume.
+TRACE="--trace"
+
 run_cascade() {
+    local extra="${1:-}"
     echo "[*] C7 cascade -> output/ppo_mech_cascade/live"
-    $PY -u -m code.train_persuader $COMMON \
+    $PY -u -m code.train_persuader $COMMON $TRACE $extra \
         --mechanism cascade --mech-beta-init \
         --goal-delta --align judge \
         --output-dir output/ppo_mech_cascade/live
 }
 
 run_exposure() {
+    local extra="${1:-}"
     echo "[*] C8 exposure -> output/ppo_mech_exposure/live"
     PERSUASION_GOAL_LAMBDA=0.2 $PY -u -m code.train_persuader $COMMON \
+        $TRACE $extra \
         --mechanism exposure --mech-beta-init \
         --reward-adoption-bonus 1.0 --align judge \
         --output-dir output/ppo_mech_exposure/live
 }
 
+# Resuming keeps the existing curve (--resume-log re-attaches the
+# per-iteration records up to the last checkpoint) and appends to the
+# existing trace, so an interrupted campaign can be re-attached to
+# tracing without losing its results.
+C7_RESUME="--resume --resume-log output/ppo_mech_cascade/live/training_log.json"
+C8_RESUME="--resume --resume-log output/ppo_mech_exposure/live/training_log.json"
+
 case "${1:-both}" in
-    cascade)  run_cascade ;;
-    exposure) run_exposure ;;
-    both)     run_cascade && run_exposure ;;
-    *) echo "usage: $0 [cascade|exposure|both]" >&2; exit 1 ;;
+    cascade)        run_cascade ;;
+    exposure)       run_exposure ;;
+    both)           run_cascade && run_exposure ;;
+    resume-cascade) run_cascade "$C7_RESUME" ;;
+    resume-exposure) run_exposure "$C8_RESUME" ;;
+    resume-both)    run_cascade "$C7_RESUME" && run_exposure "$C8_RESUME" ;;
+    *)
+        echo "usage: $0 [cascade|exposure|both|resume-cascade|resume-exposure|resume-both]" >&2
+        exit 1
+        ;;
 esac
 echo "[+] mechanism campaigns finished."
