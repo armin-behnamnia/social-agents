@@ -777,11 +777,88 @@ ablations such as a repeating-cascade C7b) — it is far cheaper to serve
 per call at equivalent compliance. Any future change of model for a
 *scored* campaign should use one model per campaign.
 
-**The real speedup is call volume, not the model.** Cascade pays 3
-internalization calls per exposure (`generate_response_message` ->
-`update_profile` -> `generate_information`) and
-`generate_response_message` embeds `delta_stance` at 4 decimals, which
-makes the prompt uncacheable across episodes — every episode re-pays
-~50-60 fresh calls (identified in the campaign-6 note as well).
-Quantising that delta behind an opt-in flag is the highest-leverage
-change: it should turn most of those calls into cache hits.
+**The real speedup is call volume, not the model.** Cascade pays ~3.8
+LLM calls per diffusion event, dominated by the crowd's internalisation
+chain (measured composition in §E.2).
+
+> **Correction (see §E.2).** An earlier guess in this section — that
+> quantising the `delta_stance` embedded in `generate_response_message`
+> was "the highest-leverage change", because it makes the prompt
+> uncacheable across episodes — is **wrong for cascade**, and is
+> superseded by the measurement: that path (`render_strategy_message`)
+> is only **~16%** of cascade calls. The dominant ~79% is the crowd
+> internalisation chain, whose prompts embed the *freshly generated*
+> source post and are therefore uncacheable by construction, no matter
+> how the deltas are formatted. Measured ceiling for that idea: ~16%.
+
+### §E.2 What actually bounds wall-clock — "can more resources speed this up?" (2026-10-25)
+
+Question asked directly, so it was measured rather than reasoned about.
+**Answer: more of *our* resources do nothing; the run is a function of
+LLM call volume × per-call latency ÷ concurrency, on a shared gateway we
+already use heavily.**
+
+**1. Our own box is idle.** Trainer at iteration 28: **39.9% of ONE
+core** (of 176), **2.4 GB of 2,011 GB** RAM, **234/234 threads blocked on
+I/O** (zero runnable), **0 MiB GPU** in use. Local CPU, GPU, RAM and disk
+off the critical path.
+
+**2. The gateway scales with concurrency, sublinearly** (probe, unique
+inputs, gateway otherwise idle, `deepseek-dynamo/deepseek-v4.1-flash`):
+
+| concurrency | 16 | 32 | 64 | 128 | 256 | 384 | 512 |
+|---|---|---|---|---|---|---|---|
+| throughput | 27.2/s | 38.4/s | 51.9/s | 63.4/s | 70.9/s | 74.9/s | 90.4/s |
+| mean latency | 0.57 s | 0.77 s | 1.09 s | 1.84 s | 3.22 s | 4.59 s | 5.02 s |
+
+It is *not* hard-saturated at our operating point (16× concurrency buys
+~3.3× rate), and throughput ≈ concurrency / latency throughout.
+
+**3. Our calls are ~2× heavier than the probe's, and the campaign sits
+at the resulting rate.** Live C7 fresh-call census: **2,282 new cache
+entries / 60 s = 38/s** (29.8/s over a 200 s window), i.e. ~4–5 s mean
+latency at 160 workers — where the probe does 63–66/s at 1.8–2.0 s. The
+difference is prompt size. Intercepting `LLM_module.call_llm` (single
+choke point) over one cascade episode (12 agents, 2 persuaders, 3
+periods, live endpoint) gives the per-diffusion-event composition:
+
+| caller | calls/episode | share | median prompt | ≈tokens |
+|---|---|---|---|---|
+| `generate_response_message` | 10 | 26% | 1076 ch | 269 |
+| `update_profile` | 10 | 26% | 715 ch | 179 |
+| `generate_information` | 10 | 26% | 692 ch | 173 |
+| `render_strategy_message` | 6 | 16% | 652 ch | 163 |
+| `judge_persuasiveness` | 2 | 5% | 884 ch | 221 |
+| **total** | **38** | | | |
+
+**3.80 calls per diffusion event**, of which the crowd internalisation
+chain (`response → profile → information`) is **79%**. Outputs are *short*
+(median 188 ch ≈ 47 tokens, p95 253), so the cost is **prefill, not
+generation**.
+
+**4. The accounting closes exactly.** 32 episodes × ~35 diffusion events
+× 3.80 calls ≈ **4,250 calls/iteration**; at the observed 139 s/iteration
+that is **30.6 calls/s** — the measured rate. 100% of wall-clock is LLM
+calls; there is no local compute to reclaim.
+
+**5. Ranked levers** (all measured or derived from the curve above):
+
+| lever | expected gain | cost |
+|---|---|---|
+| fuse/eliminate one of the 3 internalisation calls | up to ~26% each | deviates from the imported mechanism |
+| trim the internalisation prompts (prefill-bound) | ~10–30% | context/fidelity loss |
+| raise concurrency 160 → 320+ | ~1.2–1.6× | latency inflation + queue pressure on a shared server |
+| 32 → 16 episodes/iteration | 2× (linear) | halves statistical power per iteration |
+| cache the persuader render (quantise `delta_stance`) | ≤16% on cascade | — |
+| switch model | ≤1.1× (§E.1) | confounds the mechanism comparison |
+| **more of our own CPU / GPU / RAM** | **0** | — |
+| capacity for the gateway itself | direct — it *is* the bottleneck | not ours to add; 7 of 8 H200s are at 97–99% with other jobs |
+
+**Operational consequence.** Because the server still scales with
+concurrency while our client sits idle, the *campaign* (C7+C8) can be
+compressed by running both arms **concurrently** rather than serially:
+aggregate demand ~60/s is inside the envelope measured above, so both
+arms should finish in roughly the time one takes alone (local cost only:
+2 processes, ~5 GB, ~320 threads). For a *single* arm nothing helps
+except fewer/smaller calls. 64–96 workers remains the efficient
+operating point; 160 buys the same rate at higher latency.
