@@ -40,7 +40,7 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 from .rl_env import ElitePersuaderEnv
-from .strategy import N_STRATEGIES, STRATEGY_DIMS
+from .strategy import ACTIVE_SPACE, N_STRATEGIES, STRATEGY_DIMS
 
 logger = logging.getLogger(__name__)
 
@@ -266,6 +266,30 @@ def _ckpt_is_factorized(ckpt: dict) -> bool:
     if "factorized" in ckpt and ckpt["factorized"] is not None:
         return bool(ckpt["factorized"])
     return "policy_head.weight" not in ckpt.get("model_state", {})
+
+
+def _assert_strategy_space(ckpt: dict, source: str | Path) -> None:
+    """Fail *usably* when a checkpoint's action space is not this process'.
+
+    The action space is environment-dependent: ``PERSUASION_STRATEGY_SPACE``
+    selects v1 (180 arms over 4 factorized heads) or v2 (72 arms over 3).
+    Loading a v2 checkpoint without the env var therefore rebuilds the
+    wrong head shape, and the only symptom is a state_dict error naming
+    ``policy_head.weight`` -- which says nothing about the cause. Compare
+    the recorded arm count and name the fix instead.
+
+    Checkpoints written before this field existed skip the check.
+    """
+    ckpt_n = ckpt.get("n_strategies")
+    if ckpt_n is None or int(ckpt_n) == int(N_STRATEGIES):
+        return
+    space = ckpt.get("strategy_space", "?")
+    raise RuntimeError(
+        f"{source} was trained with the {int(ckpt_n)}-arm strategy space "
+        f"(PERSUASION_STRATEGY_SPACE={space}), but this process has "
+        f"{N_STRATEGIES} arms (PERSUASION_STRATEGY_SPACE={ACTIVE_SPACE}); "
+        f"re-run with PERSUASION_STRATEGY_SPACE={space}"
+    )
 
 
 def _fmt(x) -> str:
@@ -936,6 +960,7 @@ class PPOTrainer:
         start_iter = 1
         if resume_from is not None:
             ckpt = torch.load(resume_from, map_location=self.device)
+            _assert_strategy_space(ckpt, resume_from)
             want_factorized = _ckpt_is_factorized(ckpt)
             if want_factorized != self.policy.factorized:
                 logger.info(
@@ -1397,6 +1422,10 @@ class PPOTrainer:
                 "obs_dim": self.policy.body[0].in_features,
                 "hidden": self.config.hidden,
                 "factorized": bool(self.policy.factorized),
+                # The action space is env-dependent, so record it: without
+                # it a reload under the other space fails obscurely.
+                "n_strategies": int(N_STRATEGIES),
+                "strategy_space": ACTIVE_SPACE,
                 "iteration": int(iteration) if iteration is not None else None,
             },
             path,
@@ -1407,6 +1436,7 @@ class PPOTrainer:
         cls, path: str | Path, device: str | None = None
     ) -> ActorCritic:
         ckpt = torch.load(path, map_location=resolve_device(device))
+        _assert_strategy_space(ckpt, path)
         policy = ActorCritic(
             ckpt["obs_dim"], ckpt["n_actions"], hidden=ckpt["hidden"],
             factorized=_ckpt_is_factorized(ckpt),

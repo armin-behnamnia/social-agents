@@ -245,6 +245,59 @@ class TestPPOTrainer:
         a2 = loaded.act(obs, mask=mask, greedy=True)
         assert a1 == a2
 
+
+class TestStrategySpaceGuard:
+    """A checkpoint only loads under the strategy space it was trained
+    with (``PERSUASION_STRATEGY_SPACE``: v1 = 180 arms / 4 factorized
+    heads, v2 = 72 arms / 3). Loading one under the other space used to
+    fail with a state_dict error naming ``policy_head.weight``, which
+    points nowhere near the cause; the guard must name both.
+    """
+
+    def _trained(self, tmp_path):
+        env = make_env(agent_num=8, n_periods=2)
+        cfg = PPOConfig(
+            agent_num=8, iterations=1, episodes_per_iteration=1,
+            output_dir=str(tmp_path), device="cpu",
+        )
+        PPOTrainer(env, cfg).train()
+        return tmp_path / "policy.pt"
+
+    def test_checkpoint_records_its_space(self, tmp_path):
+        ckpt = torch.load(self._trained(tmp_path), map_location="cpu")
+        assert ckpt["n_strategies"] == N_STRATEGIES
+        assert ckpt["strategy_space"] in ("v1", "v2")
+
+    def test_mismatch_names_the_cause_and_the_fix(self, tmp_path, monkeypatch):
+        path = self._trained(tmp_path)
+        from code import torch_trainer as tt
+
+        monkeypatch.setattr(tt, "N_STRATEGIES", N_STRATEGIES * 5)
+        with pytest.raises(RuntimeError) as excinfo:
+            PPOTrainer.load_policy(path, device="cpu")
+        msg = str(excinfo.value)
+        # it must say what is wrong and what to do about it
+        assert "PERSUASION_STRATEGY_SPACE" in msg
+        assert str(N_STRATEGIES) in msg
+        assert "policy_head" not in msg, "leak-free: no state_dict internals"
+
+    def test_matching_space_still_loads(self, tmp_path):
+        path = self._trained(tmp_path)
+        loaded = PPOTrainer.load_policy(path, device="cpu")
+        # 8 agents x N_STRATEGIES strategies: the guard is a no-op here
+        assert loaded.n_actions == 8 * N_STRATEGIES
+
+    def test_older_checkpoints_without_the_field_are_tolerated(self, tmp_path):
+        """Back-compat: checkpoints written before the field still load."""
+        path = self._trained(tmp_path)
+        ckpt = torch.load(path, map_location="cpu")
+        ckpt.pop("n_strategies")
+        ckpt.pop("strategy_space")
+        torch.save(ckpt, path)
+        PPOTrainer.load_policy(path, device="cpu")  # must not raise
+
+
+class TestBaselines:
     def test_baselines_finite(self):
         env = make_env(agent_num=8, n_periods=3)
         assert np.isfinite(evaluate_random_baseline(env, episodes=2))
