@@ -256,3 +256,57 @@ class TestMechEnvWrap:
         # deltas in exposure mode) and must therefore be positive.
         assert total > 0.0
         assert info["n_adopted"] > 1
+
+
+class TestExhaustedCrowd:
+    """Cascade mode adopts on every exposure, so the crowd is routinely
+    exhausted before the period budget ends. The env must then return a
+    well-defined observation/mask and idle, and the trainer's masked
+    samplers must not raise (regression: all-False mask -> empty
+    np.flatnonzero -> ValueError, and every logit -inf -> NaN entropy).
+    """
+
+    def _exhausted_env(self, monkeypatch):
+        monkeypatch.setattr(
+            LLM_module, "generate_response_message",
+            lambda *a, **k: "I have changed my mind completely.",
+        )
+        monkeypatch.setattr(
+            LLM_module, "update_profile",
+            lambda received=None, profile=None, **k: "converted reader",
+        )
+        monkeypatch.setattr(
+            LLM_module, "generate_information",
+            lambda *a, **k: "I now fully support this policy.",
+        )
+        return ElitePersuaderEnv(
+            scenario=LLMScenario(agent_num=10, rng_seed=3),
+            n_periods=5,
+            topology="complete",  # everyone reachable in one period
+            n_persuaders=1,
+            persuade_all_neighbors=True,
+            mechanism="cascade",
+            mech_beta_init=True,
+            persuader_persuasiveness=False,
+        )
+
+    def test_periods_continue_after_crowd_is_adopted(self, monkeypatch):
+        env = self._exhausted_env(monkeypatch)
+        env.reset(seed=0)
+        last = None
+        reward = 0.0
+        for _ in range(5):
+            obs, reward, terminated, truncated, last = env.step(0)
+            assert obs.shape == obs.shape  # well-defined every period
+        assert last["n_adopted"] == env.scenario.agent_num
+        assert last["action_mask"].any(), (
+            "an all-False mask is undefined for categorical sampling"
+        )
+        assert np.isfinite(np.atleast_1d(reward)).all()
+
+    def test_random_baseline_survives_exhausted_crowd(self, monkeypatch):
+        from code.torch_trainer import evaluate_random_baseline
+
+        env = self._exhausted_env(monkeypatch)
+        total = evaluate_random_baseline(env, episodes=2, seed=0)
+        assert np.isfinite(total)

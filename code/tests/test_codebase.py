@@ -324,3 +324,70 @@ class TestEnv:
                 done = terminated or truncated
             rewards.append(r_total)
         assert rewards[0] == pytest.approx(rewards[1])
+
+
+class _FakeMessage:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeChoice:
+    def __init__(self, content):
+        self.message = _FakeMessage(content)
+
+
+class _FakeResponse:
+    def __init__(self, content):
+        self.choices = [_FakeChoice(content)]
+
+
+class _FakeCompletions:
+    def __init__(self, content, calls):
+        self._content = content
+        self._calls = calls
+
+    def create(self, **kwargs):
+        self._calls.append(kwargs)
+        return _FakeResponse(self._content)
+
+
+class _FakeClient:
+    def __init__(self, content, calls):
+        self.chat = type("C", (), {})()
+        self.chat.completions = _FakeCompletions(content, calls)
+
+
+class TestConcurrentCacheWrite:
+    """Parallel rollouts request the SAME cache key constantly (every
+    episode renders the same strategy x profile cell). The atomic write
+    must never lose a successful reply: a shared ".tmp" name let one
+    thread rename another's file away, which raised FileNotFoundError
+    and silently discarded an already-paid-for LLM call.
+    """
+
+    def test_same_key_from_many_threads(self, tmp_path, monkeypatch):
+        import concurrent.futures as cf
+
+        calls: list = []
+        monkeypatch.setattr(
+            llm, "_get_client", lambda: _FakeClient("RENDERED", calls)
+        )
+
+        def worker(_):
+            return llm.call_llm(
+                "identical prompt", temperature=0.0, max_tokens=8,
+                cache=True, cache_dir=tmp_path,
+            )
+
+        with cf.ThreadPoolExecutor(max_workers=16) as pool:
+            out = list(pool.map(worker, range(32)))
+
+        assert out == ["RENDERED"] * 32
+        # the call ran, at most once per racing thread — and crucially,
+        # no thread raised; the cache now holds the value for reuse
+        assert calls, "expected at least one LLM call"
+        assert llm.call_llm(
+            "identical prompt", temperature=0.0, max_tokens=8,
+            cache=True, cache_dir=tmp_path,
+        ) == "RENDERED"
+        assert not list(tmp_path.glob("*.tmp")), "temp files leaked"

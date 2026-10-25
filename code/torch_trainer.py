@@ -1117,8 +1117,12 @@ class PPOTrainer:
             elif kind == "heuristic":
                 acts = [heuristic_idx] * n_persuaders
             else:  # random
+                # an all-False mask means "no influenceable targets"
+                # (cascade mode exhausts the crowd): sampling from it
+                # would raise, so fall back to a uniform draw
                 valid = (
-                    None if mask is None or np.all(mask)
+                    None
+                    if mask is None or np.all(mask) or not np.any(mask)
                     else np.flatnonzero(mask)
                 )
                 acts = [
@@ -1246,7 +1250,7 @@ def evaluate_random_baseline(
             n = local_env.action_space.n
             actions = []
             for _ in range(n_persuaders):
-                if mask is not None and not mask.all():
+                if mask is not None and np.any(mask):
                     valid = np.flatnonzero(mask)
                     actions.append(int(local_rng.choice(valid)))
                 else:

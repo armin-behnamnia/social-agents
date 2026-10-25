@@ -71,6 +71,14 @@ class LLMConfig:
         os.environ.get("LLM_PROFILE_MAX_TOKENS", "4000")
     )
 
+    # Reasoning models emit hidden reasoning tokens before the answer.
+    # That spends the output budget (small budgets then return *empty*
+    # content) and multiplies latency, which matters here because some
+    # paths make hundreds of thousands of calls. LLM_REASONING_EFFORT
+    # turns it off ("none") or dials it ("low"/"medium"/"high"); unset
+    # leaves the provider default. Call sites may override per call.
+    reasoning_effort: str | None = os.environ.get("LLM_REASONING_EFFORT") or None
+
     max_retries: int = 3
     retry_backoff_seconds: float = 1.5
     timeout_seconds: float = 120.0

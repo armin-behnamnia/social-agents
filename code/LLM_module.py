@@ -16,7 +16,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -32,7 +34,7 @@ class LLMError(RuntimeError):
 
 
 # Shared, thread-safe OpenAI client (httpx pools connections).
-_client_lock = __import__("threading").Lock()
+_client_lock = threading.Lock()
 _client: object | None = None
 
 
@@ -64,6 +66,7 @@ def call_llm(
     cache: bool = True,
     cache_dir: str | Path = ".llm_cache",
     system_prompt: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Single entry point for chat completion with retry + cache."""
     cfg = GLOBAL_LLM_CONFIG
@@ -72,6 +75,8 @@ def call_llm(
         temperature = cfg.generation_temperature
     if max_tokens is None:
         max_tokens = cfg.generation_max_tokens
+    if reasoning_effort is None:
+        reasoning_effort = cfg.reasoning_effort
 
     cache_dir_path = Path(cache_dir)
     key = hashlib.sha256(
@@ -82,6 +87,7 @@ def call_llm(
                 "system": system_prompt,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "reasoning_effort": reasoning_effort,
             },
             sort_keys=True,
         ).encode()
@@ -112,6 +118,7 @@ def call_llm(
     messages.append({"role": "user", "content": prompt})
 
     last_error: Exception | None = None
+    extra_body = {"reasoning_effort": reasoning_effort} if reasoning_effort else None
     for attempt in range(1, cfg.max_retries + 1):
         try:
             response = client.chat.completions.create(
@@ -119,17 +126,30 @@ def call_llm(
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                extra_body=extra_body,
             )
             content = response.choices[0].message.content
             if content is None or not str(content).strip():
                 raise LLMError("LLM returned empty content")
             content = str(content).strip()
             if cache:
-                # atomic write: tmp file + rename (thread-safe)
+                # Atomic publish: unique temp name + rename. The temp
+                # name must be unique per writer: parallel rollouts
+                # routinely request the SAME key (e.g. every episode
+                # renders the same strategy x profile cell), and a shared
+                # ".tmp" name lets one thread rename another's file away
+                # ("No such file or directory"), which used to discard a
+                # *successful* reply and burn a retry.
                 final = _cache_path(cache_dir_path, key)
-                tmp = final.with_suffix(".tmp")
-                tmp.write_text(json.dumps({"content": content}))
-                tmp.replace(final)
+                try:
+                    tmp = final.with_name(
+                        f"{final.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+                    )
+                    tmp.write_text(json.dumps({"content": content}))
+                    tmp.replace(final)
+                except OSError:
+                    # a concurrent writer already published the same key
+                    pass
             return content
         except Exception as exc:  # noqa: BLE001 - transient API errors
             last_error = exc

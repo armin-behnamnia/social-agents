@@ -435,12 +435,23 @@ class ElitePersuaderEnv:
         return feats.mean(axis=0).astype(np.float32)
 
     def _action_mask(self, targets) -> np.ndarray:
-        """Boolean mask over the compound action space."""
+        """Boolean mask over the compound action space.
+
+        When there are no influenceable targets the mask is left OPEN
+        rather than all-False. The decoded target then falls back to
+        ``None`` and the persuader idles for the period, so the action
+        has no effect either way — but an all-False mask would make the
+        policy's categorical distribution undefined (every logit -inf →
+        NaN entropy → NaN loss), which the mechanism modes hit as a
+        matter of course: in cascade mode every exposure adopts, so the
+        crowd is routinely exhausted before the period budget runs out.
+        """
         mask = np.zeros(self.action_space.n, dtype=bool)
         if not self._learned_targets:
             mask[:] = True
             return mask
         if not targets:
+            mask[:] = True
             return mask
         for agent in targets:
             base = agent.id * N_STRATEGIES
@@ -498,8 +509,10 @@ class ElitePersuaderEnv:
             agent_id, strategy_idx = divmod(action, N_STRATEGIES)
             chosen = self._sim.agents[agent_id]
             if chosen not in targets:
-                # masked-out action: fall back to first candidate
-                chosen = targets[0]
+                # masked-out action: fall back to first candidate (or
+                # nothing, when the crowd is exhausted — the period then
+                # still advances but the persuader influences nobody)
+                chosen = targets[0] if targets else None
         elif self._random_neighbor:
             strategy_idx = int(action)
             chosen = (
@@ -614,16 +627,25 @@ class ElitePersuaderEnv:
             persuader.post_embedding = persuader._get_embedding(message)
             hits_before = self._judge_hits
             fallbacks_before = self._judge_fallbacks
-            score = self._judge_score(message, chosen, strategy_idx)
-            if self._judge_hits > hits_before:
-                judge_src = "id"
-            elif self._judge_fallbacks > fallbacks_before:
-                judge_src = "text"
-            else:
+            if chosen is None:
+                # idle period: the crowd is exhausted (both imported
+                # mechanisms influence each agent at most once), so no
+                # message was judged. Record None instead of the 1.0
+                # stub, otherwise the reported judge stats are dominated
+                # by fabricated perfect scores.
+                score = 1.0
                 judge_src = "none"
+            else:
+                score = self._judge_score(message, chosen, strategy_idx)
+                if self._judge_hits > hits_before:
+                    judge_src = "id"
+                elif self._judge_fallbacks > fallbacks_before:
+                    judge_src = "text"
+                else:
+                    judge_src = "none"
             persuader.message_persuasiveness = score
             goal_align = None
-            if self._goal_align_fn is not None and message:
+            if self._goal_align_fn is not None and chosen is not None:
                 goal_align = float(self._goal_align_fn(message))
                 persuader.message_goal_align = goal_align
             else:
@@ -637,7 +659,9 @@ class ElitePersuaderEnv:
                     "strategy_index": strategy_idx,
                     "strategy": spec,
                     "message": message,
-                    "persuasiveness": score,
+                    "persuasiveness": (
+                        None if chosen is None else score
+                    ),
                     "judge_src": judge_src,
                     "goal_align": goal_align,
                 }

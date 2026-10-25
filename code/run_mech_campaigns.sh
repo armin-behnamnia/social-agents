@@ -17,7 +17,16 @@
 # LLM backend note: the configured model is a reasoning model — the
 # generation/inference token budgets in code/config.py are sized for it
 # (see LLM_GENERATION_MAX_TOKENS / LLM_INFERENCE_MAX_TOKENS overrides);
-# too-small budgets make it return empty content.
+# too-small budgets make it return empty content. .env sets
+# LLM_REASONING_EFFORT=none, which keeps it in plain instruct mode:
+# without that, ~10x the latency and frequent empty replies (the hidden
+# reasoning eats the whole budget).
+#
+# Reward model: both arms reuse campaign 6's Bradley-Terry table
+# (--bt-table). It is identity-indexed, so the new decoder's message
+# text does not matter, and reusing it keeps the reward model exactly
+# comparable to campaign 6 instead of rebuilding 31k comparisons with a
+# different model.
 #
 # Matched protocol (identical to campaign 6): v2 strategy space, 50
 # agents, 5 persuaders, erdos_renyi, 10 periods, --obs-mode pair,
@@ -58,6 +67,7 @@ echo "[+] chat endpoint live."
 COMMON="--mode live --iterations 300 --episodes-per-iter 32 \
   --rollout-workers 160 --n-periods 10 --obs-mode pair \
   --target-selection random_neighbor --judge bt \
+  --bt-table output/ppo_v2_bt/bt_judge.json \
   --paired-eval-every 20 --paired-eval-episodes 50"
 
 run_cascade() {
