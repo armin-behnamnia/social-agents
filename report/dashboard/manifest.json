@@ -1,7 +1,7 @@
 {
   "source": "code.export_dashboard",
   "dashboard": "https://github.com/SIGNALS-Lab/LLMxIO_Dashboard @ 9f913ee",
-  "note": "Both runs are episodes of experiments that were already run (campaign 6: the BT baseline and the judge + goal-delta arm); no new training is required to reproduce them.",
+  "note": "Runs 8 and 9 are episodes of experiments that were already run (campaign 6: the BT baseline and the judge + goal-delta arm); runs 10 and 11 are episodes of the colleague-mechanism arms (C7 cascade, C8 exposure) recorded from their final (iteration-300) policies. No new training is required to reproduce them.",
   "protocol": {
     "strategy_space": "v2 (angle x evidence x address, 72 arms)",
     "agents": 50, "persuaders": 5, "topology": "erdos_renyi",
@@ -18,7 +18,19 @@
           "experiment": "output/ppo_v2_goal/live_goal_judge (campaign 6, --align judge --goal-delta)",
           "policy": "output/ppo_v2_goal/live_goal_judge/policy.pt",
           "trajectory": "output/ppo_v2_goal/live_goal_judge/viz/trajectory.json",
-          "final_adopted": 19, "mean_stance": "0.485 -> 0.142", "total_reward": 9.017}
+          "final_adopted": 19, "mean_stance": "0.485 -> 0.142", "total_reward": 9.017},
+    "10": {"label": "C7 cascade (stance-ful mechanism, final policy)",
+           "experiment": "output/ppo_mech_cascade/live (C7, --mechanism cascade --mech-beta-init --goal-delta --align judge)",
+           "policy": "output/ppo_mech_cascade/live/policy.pt",
+           "trajectory": "output/ppo_mech_cascade/live/viz_cascade/trajectory.json",
+           "final_adopted": 50, "mean_stance": "-0.024 -> -0.072", "total_reward": 1.751,
+           "agent_variables": "agent_variables_50_repub_10.json"},
+    "11": {"label": "C8 exposure (stance-less mechanism, final policy)",
+           "experiment": "output/ppo_mech_exposure/live (C8, --mechanism exposure --mech-beta-init --reward-adoption-bonus 1.0 --align judge, PERSUASION_GOAL_LAMBDA=0.2)",
+           "policy": "output/ppo_mech_exposure/live/policy.pt",
+           "trajectory": "output/ppo_mech_exposure/live/viz_exposure/trajectory.json",
+           "final_adopted": 13, "mean_stance": "-0.024 -> -0.024 (frozen by mechanism)", "total_reward": 14.480,
+           "agent_variables": "agent_variables_50_repub_11.json"}
   },
   "schema": {
     "follow_log": "Iteration,Agent Name,Followed User,Reason",

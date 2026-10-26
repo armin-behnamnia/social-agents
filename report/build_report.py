@@ -103,6 +103,8 @@ _AB_P = HERE / "ab_goal.json"
 _AB = json.loads(_AB_P.read_text()) if _AB_P.exists() else None
 _GOALB_P = HERE / "goal_backends.json"
 _GOALB = json.loads(_GOALB_P.read_text()) if _GOALB_P.exists() else None
+_MECH_P = HERE / "mech_runs.json"
+_MECH = json.loads(_MECH_P.read_text()) if _MECH_P.exists() else {"arms": {}}
 
 
 def goal_backends():
@@ -555,6 +557,7 @@ pay = {
     "cal": calibration(),
     "goal": goal_validation(),
     "goal_backends": goal_backends(),
+    "mech": _MECH,
     "ab": ab_goal(),
     "viz": {"runs": dashboard_runs()},
 }
@@ -675,9 +678,9 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
   <a href="#channel">The reward channel</a>
   <a href="#landscape">Strategy landscape</a>
   <a href="#next">Conclusions</a>
+  <a href="#mech">Mechanism campaign</a>
   <a href="#viz">Simulation visualization</a>
   <a href="#appendix">Appendix: strategy v2</a>
-  <a href="#viz">Simulation visualization</a>
 </nav>
 </div>
 
@@ -1109,6 +1112,31 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 <div class="flyout">
   <div class="flyout-title">validation gate (run before committing)</div>
   <p>Any candidate strategy space must clear all three, measured exactly as here: realisability <span class="mono">NN ≥ 0.60</span>; readability <span class="mono">judge SD ≥ 0.15</span> and <span class="mono">modal &lt; 40%</span>; and a target×action oracle gain that exceeds the per-episode reward noise (<span class="mono">SE ≈ 0.53</span>). A space that fails the third is unlearnable no matter how diverse its posts.</p>
+</div>
+
+<!-- ============ mechanism campaign ============ -->
+<h2 id="mech">Mechanism campaign — C7 cascade vs C8 exposure <a href="#toc" class="back-to-top" title="Back to contents">+</a></h2>
+<p class="state-line">Two propagation mechanisms imported from the colleague's Melodie reimplementation, ported faithfully onto our core and trained from scratch on campaign 6's protocol — <strong>300 iterations × 32 episodes</strong>, v2 space, BT judge, 50 agents / 5 persuaders / erdos_renyi / 10 periods, paired eval every 20 iterations.</p>
+<p style="max-width:820px;color:var(--ink-light)">They are deliberately different experiments. <span class="mono">cascade</span> (C7) is stance-ful, but its imported emergence rule fires on <em>any</em> observable change — and a generative backend always emits something different — so the whole reachable component adopts in <strong>period 0</strong>: it is a single-round persuasion-quality benchmark. <span class="mono">exposure</span> (C8) freezes stances entirely and spreads through a persistent cross-period queue gated by an LLM accept, so it is the arm where the multi-period diffusion problem is real. This is not a port defect — it is their rule meeting our backend, and the faithful port is what makes it visible.</p>
+<div class="table-wrapper">
+<table>
+  <thead><tr><th class="left">arm</th><th class="left">mechanism</th><th>reward</th><th>adopted</th><th>eval greedy @300</th><th>t vs random</th><th>t vs heuristic</th><th>eval judge</th></tr></thead>
+  <tbody id="mechTable"></tbody>
+</table>
+</div>
+<div class="chart-container reveal">
+  <canvas id="mechChart" height="240"></canvas>
+  <div class="caption" id="mechCaption"></div>
+</div>
+<div class="aside-container">
+  <div class="aside">
+    <div class="sidebar-title">C7 — a clean single-round win</div>
+    <p><strong>Beats both baselines in all 15 evals.</strong> The paired greedy reward rises 1.413 → <span class="mono">1.684</span>; every eval beats random (t = +4.3…+7.7) and the heuristic by a wide margin. Message quality improves with it — eval judge 0.931 → 0.979 — and strategy entropy does <em>not</em> collapse (1.70 → 1.82), so the policy is not narrowing onto one angle.</p>
+  </div>
+  <div class="aside">
+    <div class="sidebar-title">C8 — quality up, adoption flat</div>
+    <p><strong>Parity with random, above the heuristic.</strong> Its judge score rises sharply (0.523 → 0.808) but reward stays flat (14.20 → 14.30) and its edge over random sits at zero ± noise (mean t = +0.58 over 15 evals). Adoption is decided by the LLM accept gate, not the strategy, so improving <span class="mono">a(m)</span> does not move the reward. An earlier "flat to worse" read did not survive to iteration 300 and has been withdrawn.</p>
+  </div>
 </div>
 
 <!-- ============ visualization ============ -->
@@ -1639,6 +1667,50 @@ if(D.ab){
   }
 }
 
+const mt=document.getElementById('mechTable');
+if(mt && D.mech && D.mech.arms){
+  const names={cascade:'C7 cascade',exposure:'C8 exposure'};
+  const mechNames={cascade:'stance-ful — period-0 collapse',exposure:'stance-less — multi-period queue'};
+  ['cascade','exposure'].forEach(k=>{
+    const a=D.mech.arms[k]; if(!a) return;
+    const jf=a.eval_judge&&a.eval_judge.length?a.eval_judge[0]:null;
+    const jl=a.eval_judge&&a.eval_judge.length?a.eval_judge[a.eval_judge.length-1]:null;
+    const gl=a.eval_greedy&&a.eval_greedy.length?a.eval_greedy[a.eval_greedy.length-1]:'—';
+    mt.insertAdjacentHTML('beforeend',
+      `<tr><td class="left">${names[k]}</td><td class="left">${mechNames[k]}</td>`+
+      `<td class="mono">${a.reward_first} → ${a.reward_last}</td>`+
+      `<td class="mono">${(+a.adopted_min).toFixed(1)}–${(+a.adopted_max).toFixed(1)}</td>`+
+      `<td class="mono">${gl}</td>`+
+      `<td class="mono">${a.t_random_mean>=0?'+':''}${a.t_random_mean} (mean)</td>`+
+      `<td class="mono">${a.t_heuristic_mean>=0?'+':''}${a.t_heuristic_mean} (min ${a.t_heuristic_min})</td>`+
+      `<td class="mono">${jf} → ${jl}</td></tr>`);
+  });
+}
+const mc=document.getElementById('mechChart');
+if(mc && D.mech && D.mech.arms){
+  const colors={cascade:'#c45a28',exposure:'#2a7a5a'};
+  const ds=[];
+  ['cascade','exposure'].forEach(k=>{
+    const a=D.mech.arms[k]; if(!a) return;
+    ds.push({label:k,data:a.exposures_by_period,backgroundColor:colors[k],borderRadius:2});
+  });
+  new Chart(mc,{type:'bar',
+    data:{labels:['0','1','2','3','4','5','6','7','8','9'],datasets:ds},
+    options:{responsive:true,
+      plugins:{legend:{labels:{font:{size:11}}},
+        tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y.toLocaleString()} exposures`}}},
+      scales:{y:{title:{display:true,text:'exposures'},ticks:{font:{size:10}}},
+              x:{title:{display:true,text:'period'},ticks:{font:{size:10}}}}}});
+  const cas=D.mech.arms.cascade, exp=D.mech.arms.exposure;
+  if(cas && exp){
+    const pct=(100*cas.exposures_by_period[0]/cas.exposures_total).toFixed(1);
+    const cap=document.getElementById('mechCaption');
+    if(cap) cap.textContent=
+      `Exposures by period over the full 300-iteration traces. C7 cascade issues `+
+      `${cas.exposures_by_period[0].toLocaleString()} of ${cas.exposures_total.toLocaleString()} (${pct}%) in period 0; `+
+      `C8 exposure spreads ${exp.exposures_total.toLocaleString()} almost evenly across all ten.`;
+  }
+}
 const vz=document.getElementById('vizTable');
 if(vz && D.viz){
   D.viz.runs.forEach(r=>{
