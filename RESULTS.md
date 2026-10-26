@@ -704,7 +704,7 @@ unaffected):
    it does not apply to.
 
 **Verified rather than asserted.** `code/tests/test_export_dashboard.py`
-(22 tests) pins the accounting on a synthetic trajectory: series lengths,
+(27 tests) pins the accounting on a synthetic trajectory: series lengths,
 cumulative counters summing to the event count (nothing dropped or
 double-counted), sticky adoption, `influence_cum` as the signed sum of
 deltas, no self-exposure, `from_persuader_cum` counting only persuader
@@ -717,15 +717,17 @@ dashboard's already-stale `__tests__`, and adds **no** failures to its
 suite (pristine: 46 failed / 107 passed; patched: 46 / 112).
 
 Run 10 (C7 cascade) and run 11 (C8 exposure) are selectable in the
-dashboard's run dropdown; see §F for what they show. Run 11 is **verified
+dashboard's run dropdown, **both now re-recorded from the final
+(iteration-300) policies**; see §F for what they show. Each is **verified
 against its own trajectory**: the cumulative counters equal the event log
 (nothing dropped or double-counted), no agent is exposed to itself, the
 `stance` series equals the recorded snapshot at every iteration (max
 deviation 5e-5 — the 4-decimal rounding), and
-`stance[p] = stance[p-1] + Σ deltas@p` holds for 50/50 agents. Both runs
-currently ship from a mid-campaign checkpoint (run 10 @ iteration 20, run
-11 @ iteration 10) and are re-recorded from the final policies when the
-campaign ends.
+`stance[p] = stance[p-1] + Σ deltas@p` holds for 50/50 agents in run 11
+(run 10's 45 shifting agents agree to the same rounding). Run 10 shows
+**50/50 adopted** via 45 single-period stance shifts; run 11 shows
+**13/50 adopted** over 37 influences with stances frozen throughout, as
+the mechanism requires.
 
 **The wording follows the data.** `exposure` freezes stances outright
 (§F.2), so the generic "mutable, moves by the judged increment" text would
@@ -962,7 +964,13 @@ iteration 21. The training log itself is clean (the resume drops
 duplicates); the monitor groups by iteration, so it only makes that one
 iteration denser.
 
-# F. Mechanism campaign — first results (2026-10-25, running)
+# F. Mechanism campaign — final results (2026-10-26)
+
+Both arms ran the full **300 iterations × 32 episodes** protocol of campaign 6
+(α=0.25, susceptibility 0.4, v2 strategy space, BT judge, 50 agents / 5
+persuaders / erdos_renyi / 10 periods, `--obs-mode pair`,
+`--target-selection random_neighbor`, seed 0, paired eval on 50 shared seeds
+every 20 iterations). C7 completed in 13.4 h, C8 in 9.0 h.
 
 ## F.1 C7 cascade: the imported emergence rule collapses the cascade into one period
 
@@ -979,20 +987,21 @@ whole reachable component in **period 0**:
 
 | evidence | value |
 |---|---|
-| `mean_adopted` over the 22 iterations recorded so far | **50.0 / 50 every single iteration** |
-| `mean_final_stance`, same iterations | −0.032 … +0.004 (essentially unmoved) |
-| live trace, exposures by period (0-based) | **942 in period 0, 3 in period 1, 0 in periods 2–9** |
-| dashboard run 10 (same protocol, seed 900000) | 44 exposures in period 1, 1 in period 2, **0 after**; 50/50 adopted |
+| `mean_adopted` over all **300** iterations | **50.0 / 50 every single iteration** |
+| `mean_final_stance`, same iterations | −0.058 … +0.004 (essentially unmoved) |
+| live trace, exposures by period (0-based), 300-iteration total 403,245 | **400,554 in period 0, 2,678 in period 1, 13 in period 2, 0 in periods 3–9** |
+| dashboard run 10 (same protocol, seed 900000, final policy) | 45 stance shifts in one period; **50/50 adopted** |
 
 **Consequence.** From period 1 on, every agent has `preference_state == 1`,
 so `_eligible_target` rejects everyone and `step()` does nothing:
 **periods 1–9 issue zero LLM calls and make zero decisions.** The
 multi-period diffusion problem is degenerate. What the policy can still
 affect is its *first-period* strategy choice — 5 persuaders acting into a
-fresh network — which is where the iteration-to-iteration reward movement
-(0.969 → 1.343 over 22 iterations) comes from: the reward keeps a judge
-term (`train_judge.mean ≈ 0.70`, `n = 195` decisions/iteration), and that
-term varies. The rest of the action space is inert.
+fresh network — which is where the reward movement
+(1.11 → 1.53 first→last, last-6 mean 1.69) comes from: the reward keeps a
+judge term (`train_judge.mean 0.702 → 0.968`, `n = 195`
+decisions/iteration), and that term varies. The rest of the action space is
+inert.
 
 This is *not* a port defect — it is their rule (emergence = any observable
 change) meeting a backend that always emits text; the faithful port is
@@ -1015,26 +1024,42 @@ exposure arm and does not compete with it for throughput. A
 shift-proportional variant would be a new mechanism and is therefore a
 separate experiment, not a patch to this one.
 
-## F.2 C8 exposure: the multi-period structure is alive (preliminary)
+**Final (2026-10-26): C7 completed 300/300 in 13.4 h.** Under option (a) it is
+a clean, stable single-round result: the paired eval improves monotonically
+from 1.413 @20 to **1.684 @300** and beats *both* baselines in **all 15**
+evals (vs random t = +4.3 … +7.7, mean **+7.16**; vs heuristic up to
+t = **+20.2**). Message quality rises with it — eval judge 0.931 → 0.979 —
+and, importantly, the eval strategy entropy does **not** collapse
+(1.70 → 1.82), so the policy is not narrowing onto one angle. `results.json`'s
+own greedy read is **1.750** vs random 1.167 / heuristic 0.743. The arm is
+what it was advertised as: a first-round persuasion-quality benchmark, and
+the policy clearly learns it.
 
-Eleven iterations in, `mean_adopted` moves between **13.5 and 18.6 of 50**
-(reward ≈ 14 on its own scale: +1.0 per persuader-sourced adoption, +0.05
-accept shaping, λ=0.2 judge). By construction the arm has **no stance
-dynamics at all** — adoption moves through a **persistent cross-period
-queue** gated by an LLM accept decision — so unlike C7 it uses all ten
-periods. This is the arm where the multi-period RL problem actually
-exists.
+## F.2 C8 exposure: the multi-period structure is alive (final)
+
+Eleven iterations in, `mean_adopted` moved between **13.5 and 18.6 of 50**;
+across the full 300 iterations it oscillates in the same band
+(**13.5 … 21.6**, ending at 17.6), on a reward scale of ≈ 14 (this arm's
+scale: +1.0 per persuader-sourced adoption, +0.05 accept shaping, λ=0.2
+judge). The final trace confirms the structure is real: **528,917
+exposures spread across all ten periods**
+(48,000 / 59,343 / 61,511 / 58,457 / 54,414 / 51,693 / 49,825 / 48,931 /
+48,468 / 48,275), versus C7's 400,554-of-403,245 in period 0 (§F.1). By
+construction the arm has **no stance dynamics at all** — adoption moves
+through a **persistent cross-period queue** gated by an LLM accept decision
+— so unlike C7 it uses all ten periods. This is the arm where the
+multi-period RL problem actually exists.
 
 **Do not read `mean_final_stance` as progress in this arm.** Stances are
 frozen, so the only way that sentence can move is if the episode's stance
 *draw* moves: the trainer averages 32 episodes per iteration, each
 initialised from `beta_stance_init` under its own RNG state, so the
 `+0.011 … +0.030` seen over eleven iterations is the noise of a redraw, not
-something the policy did. The recorded run-11 episode makes the point
-exactly: across its 78 influences **not one carries a non-zero increment**,
-all 50 agents hold their `t0` stance through all eleven snapshots
-(population mean `-0.024 → -0.024`), and adoption still spreads over
-periods 1–10, ending at 9/50. So the learning signal here is
+something the policy did. The recorded run-11 episode (re-recorded from the
+final policy) makes the point exactly: across its 37 influences **not one
+carries a non-zero increment**, all 50 agents hold their `t0` stance through
+all eleven snapshots (population mean `-0.024 → -0.024`), and adoption still
+spreads over periods 1–10, ending at 13/50. So the learning signal here is
 `mean_adopted` and the reward; the stance series is a constant — and as of
 §D.1 the node panel says so instead of implying motion.
 
@@ -1046,32 +1071,47 @@ is the one that speaks to *diffusion over time*; C7's speaks only to
 (§E.2 / `METRICS.md`); monitors run on ports 3010 (cascade) and 3011
 (exposure), and the run dashboard is on 3009 (§D.1).
 
-**F.2a Early evaluation signal — the two arms are diverging (iteration 50
-of 300, preliminary).** The paired eval (50 episodes, identical seeds)
-says opposite things about the two arms:
+**F.2a Final evaluation signal — C8 lands at parity with random, not
+below it (corrects the earlier preliminary read).** The paired eval (50
+episodes, identical seeds) every 20 iterations gives 15 points per arm:
 
 | eval | greedy | random | heuristic |
 |------|--------|--------|-----------|
 | C7 cascade @20 | **1.413** | 1.079 (t=+4.26) | 0.755 (t=+13.73) |
-| C7 cascade @40 | **1.589** | 1.079 (t=+6.81) | 0.755 (t=+18.22) |
+| C7 cascade @300 | **1.684** | 1.079 (t=+7.70) | 0.755 (t=+20.22) |
 | C8 exposure @20 | 13.962 | 14.143 (t=−1.48) | 13.702 (t=+1.93) |
-| C8 exposure @40 | 13.536 | **14.143** (t=−9.57) | 13.702 (t=−1.44) |
+| C8 exposure @300 | **14.359** | 14.143 (t=+2.90) | 13.702 (t=+5.03) |
 
-C7's policy beats both baselines by a margin that is *growing* (and its
-judge-eval rises 0.931 → 0.974): on message quality the arm is learning —
-which is the only thing that arm can learn, since every agent adopts in
-period 0 regardless (§F.1).
+C7 beats **both** baselines in **all 15** evals: vs random t = +4.3 … +7.7
+(mean **+7.16**), vs heuristic t = +13.7 … +20.3 (mean +19.31). That is the
+message-quality lesson §F.1 predicted, and it is stable.
 
-C8's policy is instead **flat to worse**: reward 14.2 → 14.0 with
-`mean_adopted` pinned at 13.5–18.8, and at iteration 40 greedy is
-*significantly below the random baseline* while the judge score of its
-messages rose (0.523 → 0.749) and its strategy entropy collapsed
-(1.31 → 0.91, i.e. it narrowed onto one angle). That is the signature of a
-policy optimising `a(m)` — the one component it can actually move —
-without that translating into reward, because the reward is dominated by
-the adoption bonus, which is decided by the LLM accept gate rather than by
-the strategy chosen. Flagged here rather than left for the final read: if
-it holds to 300 it is the main C8 finding, and it is a statement about the
-*reward*, not about the mechanism's diffusion (which §F.2 shows is alive).
-The campaign continues; nothing here is a verdict yet.
+C8's full vs-random series is
+`−1.5 −9.6 −1.7 +4.9 −3.7 +6.0 −3.3 +0.4 +0.3 +4.1 +1.3 +3.5 −0.6 +5.7 +2.9`
+→ mean **+0.58**: **parity with the random baseline**, with large
+eval-to-eval variance; against the heuristic it is positive in 14 of 15
+evals (mean +4.04).
+
+**Correction.** An earlier revision of this section flagged C8 as "flat to
+worse", on the strength of the first two evals (@20 t=−1.48, @40 t=−9.57)
+plus two supporting observations. Both supporting observations **reverse by
+iteration 300**, so the flag did not hold and is withdrawn:
+
+- **strategy entropy** was 1.31 at @20 and 0.91 at @40 (which looked like
+  narrowing onto one angle), but is **2.13 at @300** — it widened; it did
+  not collapse.
+- **reward** was written as 14.2 → 14.0; the true curve is essentially flat
+  **14.20 → 14.30** with `mean_adopted` oscillating 13.5–21.6.
+
+What survives is the substance: C8's judge score rises a lot (0.523 →
+**0.808**) and its greedy reward stays above the heuristic, yet reward
+stays flat and its edge over *random* sits at zero ± noise. That is
+consistent with the reward being dominated by the adoption bonus, which the
+LLM accept gate decides rather than the strategy — the policy improves the
+one component it can move (`a(m)`) without moving adoption. So the honest
+final C8 statement is: **message quality up, adoption and reward flat at
+parity with random, and the mechanism's multi-period diffusion alive
+(§F.2)**. Whether a reward re-shaping — shifting weight off the adoption
+bonus toward `a(m)` — closes the gap is a *new experiment*, not a fix to
+this arm.
 
