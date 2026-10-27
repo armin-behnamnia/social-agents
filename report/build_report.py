@@ -105,6 +105,9 @@ _GOALB_P = HERE / "goal_backends.json"
 _GOALB = json.loads(_GOALB_P.read_text()) if _GOALB_P.exists() else None
 _MECH_P = HERE / "mech_runs.json"
 _MECH = json.loads(_MECH_P.read_text()) if _MECH_P.exists() else {"arms": {}}
+_MA_P = HERE / "mech_analysis.json"
+_MECH_ANALYSIS = (json.loads(_MA_P.read_text()) if _MA_P.exists()
+                  else {"arms": {}})
 
 
 def goal_backends():
@@ -558,6 +561,7 @@ pay = {
     "goal": goal_validation(),
     "goal_backends": goal_backends(),
     "mech": _MECH,
+    "mech_analysis": _MECH_ANALYSIS,
     "ab": ab_goal(),
     "viz": {"runs": dashboard_runs()},
 }
@@ -1131,12 +1135,28 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 <div class="aside-container">
   <div class="aside">
     <div class="sidebar-title">C7 — a clean single-round win</div>
-    <p><strong>Beats both baselines in all 15 evals.</strong> The paired greedy reward rises 1.413 → <span class="mono">1.684</span>; every eval beats random (t = +4.3…+7.7) and the heuristic by a wide margin. Message quality improves with it — eval judge 0.931 → 0.979 — and strategy entropy does <em>not</em> collapse (1.70 → 1.82), so the policy is not narrowing onto one angle.</p>
+    <p><strong>Beats both baselines in all 15 evals.</strong> The paired greedy reward rises 1.413 → <span class="mono">1.684</span>; every eval beats random (t = +4.3…+7.7) and the heuristic by a wide margin. 84% of its reward is the stance pull (92% of its variance), with <span class="mono">λ=0</span> — the judge is <em>not</em> in the reward, so its rise (0.931 → 0.979) is instrumental: better-scoring messages pull stances further. Strategy entropy does <em>not</em> collapse (1.70 → 1.82). Ceiling: 68% of its judged messages sit at exactly 1.0.</p>
   </div>
   <div class="aside">
     <div class="sidebar-title">C8 — quality up, adoption flat</div>
-    <p><strong>Parity with random, above the heuristic.</strong> Its judge score rises sharply (0.523 → 0.808) but reward stays flat (14.20 → 14.30) and its edge over random sits at zero ± noise (mean t = +0.58 over 15 evals). Adoption is decided by the LLM accept gate, not the strategy, so improving <span class="mono">a(m)</span> does not move the reward. An earlier "flat to worse" read did not survive to iteration 300 and has been withdrawn.</p>
+    <p><strong>Parity with random, above the heuristic.</strong> Reward stays flat (14.20 → 14.30) and its edge over random sits at zero ± noise (mean t = +0.58 over 15 evals). 63.5% of its reward is a near-constant alignment offset; the policy's small gain came from that term (r = 0.62), not from adoptions (r = 0.09). An earlier "flat to worse" read did not survive to iteration 300 and has been withdrawn.</p>
   </div>
+</div>
+<div class="aside-container">
+  <div class="aside">
+    <div class="sidebar-title">the reward, decomposed from the data</div>
+    <p>C8's stance term is identically zero, so regressing its reward on the recorded counts recovers the weights <strong>exactly</strong> (<span class="mono">R²=1.000000</span>): <span class="mono">1.05·n_adopt + 0.2·Σa(m)</span>. That validates attributing C7's remainder to the stance pull. Note <span class="mono">a(m)</span> is the goal-axis judge, <em>not</em> the BT <span class="mono">persuasiveness</span> score the eval reports — they correlate r = +0.14 (C7) / −0.01 (C8).</p>
+  </div>
+  <div class="aside">
+    <div class="sidebar-title">the decisive number</div>
+    <p><strong>63.5% of C8's reward is a near-constant offset.</strong> Its alignment term is <span class="mono">8.99 ± 0.16</span> of 14.16 per episode (per-episode <span class="mono">Σa(m) = 45.0 ± 0.8</span>, cv 1.8%). Only ~35% can move with behaviour — and the accept gate, which decides that part, already reads message quality (adopt rate 0.48 → 0.93 across persuasiveness deciles) and saturates at the top, where 32% of messages sit.</p>
+  </div>
+</div>
+<div class="table-wrapper">
+<table>
+  <thead><tr><th class="left">arm</th><th>reward / episode</th><th>stance pull</th><th>accept shaping</th><th>adoption bonus</th><th>alignment λ·Σa(m)</th><th class="left">variance driver</th></tr></thead>
+  <tbody id="mechDecompTable"></tbody>
+</table>
 </div>
 
 <!-- ============ visualization ============ -->
@@ -1667,8 +1687,8 @@ if(D.ab){
   }
 }
 
-const mt=document.getElementById('mechTable');
-if(mt && D.mech && D.mech.arms){
+const mechTbl=document.getElementById('mechTable');
+if(mechTbl && D.mech && D.mech.arms){
   const names={cascade:'C7 cascade',exposure:'C8 exposure'};
   const mechNames={cascade:'stance-ful — period-0 collapse',exposure:'stance-less — multi-period queue'};
   ['cascade','exposure'].forEach(k=>{
@@ -1676,7 +1696,7 @@ if(mt && D.mech && D.mech.arms){
     const jf=a.eval_judge&&a.eval_judge.length?a.eval_judge[0]:null;
     const jl=a.eval_judge&&a.eval_judge.length?a.eval_judge[a.eval_judge.length-1]:null;
     const gl=a.eval_greedy&&a.eval_greedy.length?a.eval_greedy[a.eval_greedy.length-1]:'—';
-    mt.insertAdjacentHTML('beforeend',
+    mechTbl.insertAdjacentHTML('beforeend',
       `<tr><td class="left">${names[k]}</td><td class="left">${mechNames[k]}</td>`+
       `<td class="mono">${a.reward_first} → ${a.reward_last}</td>`+
       `<td class="mono">${(+a.adopted_min).toFixed(1)}–${(+a.adopted_max).toFixed(1)}</td>`+
@@ -1710,6 +1730,26 @@ if(mc && D.mech && D.mech.arms){
       `${cas.exposures_by_period[0].toLocaleString()} of ${cas.exposures_total.toLocaleString()} (${pct}%) in period 0; `+
       `C8 exposure spreads ${exp.exposures_total.toLocaleString()} almost evenly across all ten.`;
   }
+}
+const mechDecomp=document.getElementById('mechDecompTable');
+if(mechDecomp && D.mech_analysis && D.mech_analysis.arms){
+  const armName={cascade:'C7 cascade',exposure:'C8 exposure'};
+  const pct=v=>(v==null?'—':v.toFixed(1)+'%');
+  const num=v=>(v?Number(v).toFixed(3):'—');
+  ['cascade','exposure'].forEach(k=>{
+    const a=D.mech_analysis.arms[k]; if(!a) return;
+    const d=a.decomposition, t=d.term_means, s=d.term_shares_pct, vs=d.term_variance_shares_pct;
+    let drv='—', best=-1;
+    Object.keys(vs).forEach(key=>{ if(vs[key]>best){best=vs[key]; drv=`${key.replace('t_','')} ${vs[key]}%`;} });
+    mechDecomp.insertAdjacentHTML('beforeend',
+      `<tr><td class="left">${armName[k]}</td>`+
+      `<td class="mono">${d.mean_reward}</td>`+
+      `<td class="mono">${num(t.t_stance)} (${pct(s.t_stance)})</td>`+
+      `<td class="mono">${num(t.t_accept)} (${pct(s.t_accept)})</td>`+
+      `<td class="mono">${num(t.t_bonus)} (${pct(s.t_bonus)})</td>`+
+      `<td class="mono">${num(t.t_align)} (${pct(s.t_align)})</td>`+
+      `<td class="left mono">${drv}</td></tr>`);
+  });
 }
 const vz=document.getElementById('vizTable');
 if(vz && D.viz){
