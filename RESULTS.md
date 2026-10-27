@@ -993,15 +993,21 @@ whole reachable component in **period 0**:
 | dashboard run 10 (same protocol, seed 900000, final policy) | 45 stance shifts in one period; **50/50 adopted** |
 
 **Consequence.** From period 1 on, every agent has `preference_state == 1`,
-so `_eligible_target` rejects everyone and `step()` does nothing:
-**periods 1–9 issue zero LLM calls and make zero decisions.** The
+so `_eligible_target` rejects everyone: **periods 1–9 deliver nothing and
+earn exactly zero reward** (the trace confirms `n_candidates = 0` and
+`target = None` in every such row — 97.6% of the episode's messages). The
 multi-period diffusion problem is degenerate. What the policy can still
 affect is its *first-period* strategy choice — 5 persuaders acting into a
-fresh network — which is where the reward movement
-(1.11 → 1.53 first→last, last-6 mean 1.69) comes from: the reward keeps a
-judge term (`train_judge.mean 0.702 → 0.968`, `n = 195`
-decisions/iteration), and that term varies. The rest of the action space is
-inert.
+fresh network — and §G shows what that reward actually consists of: **84%
+stance pull and 16% accept shaping, with no judge term at all** (`λ = 0`
+unless `PERSUASION_GOAL_LAMBDA` is set, which C7 does not set). The rest of
+the action space is inert.
+
+*(Correction, 2026-10-27: an earlier revision of this section said periods
+1–9 "issue zero LLM calls" and that the reward "keeps a judge term" with a
+rising `train_judge`. Both are wrong. The policy still emits an action and a
+message render every period — it is cached, so it is cheap, but it is not
+zero work — and the BT judge never enters C7's reward; see §G.1.)*
 
 This is *not* a port defect — it is their rule (emergence = any observable
 change) meeting a backend that always emits text; the faithful port is
@@ -1114,4 +1120,144 @@ parity with random, and the mechanism's multi-period diffusion alive
 (§F.2)**. Whether a reward re-shaping — shifting weight off the adoption
 bonus toward `a(m)` — closes the gap is a *new experiment*, not a fix to
 this arm.
+
+# G. Analytics — where the reward actually comes from (2026-10-27)
+
+Everything in this section is measured from what the trainer itself recorded
+(`periods.jsonl`, `steps.jsonl`, `events.jsonl`), not reconstructed from
+assumption: `code/analyze_mech_campaign.py` writes `report/mech_analysis.json`.
+The audit path is anchored by the fact that the trace's own
+`period_reward_sum` reproduces the logged `mean_episode_reward` to **1e-5**
+(max |residual| 0.05 over 280–300 iterations), so the trace is a faithful
+record of the reward.
+
+## G.1 The reward algebra, recovered from the data
+
+`code/rl_env.py::step` assembles
+`reward = −Δstance + 0.05·n_accept + B·n_adopt + λ·Σa(m) − cost`. C8's stance
+term is identically zero (the mechanism freezes stances), so regressing its
+reward on the recorded counts and message scores must recover the weights
+exactly — and it does:
+
+| arm | recovered from the data | R² | max\|resid\| |
+|---|---|---|---|
+| C8 exposure | `reward = 1.0500·n_accept + 0.2000·Σa(m) + 0.0000` | **1.000000** | 0.0000 |
+| C7 cascade | `reward = 0.3145·n_accept + 0.0002·Σa(m) − 0.0005` | 0.941 | 1.275 |
+
+C8's coefficients are exactly the documented ones — 1.05 = accept shaping
+(0.05) + adoption bonus (1.00), both landing on the same count because in the
+exposure arm an accepted exposure *is* an adoption — and 0.20 is
+`PERSUASION_GOAL_LAMBDA`. C7's regression is contaminated precisely because
+the reward has **λ = 0**: the unobserved stance-pull term covaries with
+`n_accept`, so the fit puts 0.31 on it and leaves a 1.27 residual. That is
+the empirical proof that **the BT judge is not in C7's reward**.
+
+**Two different judges, and "quality" means both.** The reward's alignment
+term is `a(m)` = the **goal-axis judge** (a separate LLM call returning
+−1…+1, normalised to 0…1), *not* the BT `persuasiveness` score that the
+observations and the eval report. They are near-independent: r = **+0.14**
+(C7) and **−0.01** (C8). So "message quality improved" is two different
+claims depending on which judge you mean, and the report has to name which.
+
+## G.2 Per-episode decomposition
+
+| arm | reward / episode | stance pull | accept shaping | adoption bonus | alignment λ·Σa(m) | cascade credit |
+|---|---|---|---|---|---|---|
+| C7 cascade | **1.593** | 1.339 (**84.0%**) | 0.254 (15.9%) | — | — (λ = 0) | 0.001 |
+| C8 exposure | **14.159** | 0 (frozen) | 0.246 (1.7%) | 4.922 (34.8%) | 8.991 (**63.5%**) | 0 |
+
+Split by *variance* — i.e. by which term can actually carry a gradient:
+
+| arm | reward var | stance pull | accept shaping | adoption bonus | alignment |
+|---|---|---|---|---|---|
+| C7 cascade | 0.1726 | **91.6%** | 0.8% | — | — |
+| C8 exposure | 0.1082 | — | 0.2% | **68.9%** | 25.1% |
+
+## G.3 Finding 1 — C8's reward is about two-thirds a constant
+
+The alignment term is not merely the largest part of C8's reward; it is nearly
+**invariant**: per-episode `Σa(m) = 44.955 ± 0.824` (coefficient of variation
+**1.8%**), so `0.2·Σa(m) = 8.99 ± 0.16` of a 14.16 reward. Two consequences
+follow directly from the numbers:
+
+- Only **~35%** of C8's reward can move with behaviour at all (the adoption
+  bonus); the other 64% is a near-fixed offset every episode collects.
+- The *only* term with a training trend is the alignment term
+  (**+0.00058/iter, r = 0.62**); the adoption term is flat
+  (**+0.000054/iter, r = 0.09**), and total reward trends +0.00064/iter
+  (r = 0.59).
+
+So C8's small reward gain over 300 iterations was bought almost entirely on
+the saturated, low-variance term — **not** on adoptions. That is the
+mechanical account of §F.2a's parity: the policy cannot buy conversions, and
+the component it *can* push is the one that barely touches the reward.
+
+## G.4 Finding 2 — C7's reward is the mirror image
+
+84% of C7's reward is the stance pull and **91.6% of its variance** — the
+signal is real, behavioural and movable. Its trend (+0.00107/iter, r = 0.74)
+*is* the learning, and it is the reason the eval improves. Note the causal
+chain this implies: the BT judge is never rewarded, yet it rose
+(0.931 → 0.979). It rose **because** it is instrumental — a better-scoring
+message produces a larger stance pull (§G.5), and the pull is what pays.
+That is a cleaner result than "the judge improved": the policy learned to
+persuade, and the judge improved as a by-product.
+
+## G.5 Quality → outcome: the mechanism works, and it saturates
+
+Direct persuader→target exposures (45,491 for C7, 59,698 for C8), binned by
+message persuasiveness:
+
+| persuasiveness decile | C7 mean \|Δstance\| | C8 adopt rate |
+|---|---|---|
+| lowest (p ≈ 0.36–0.62) | 0.159 | 0.476 |
+| 2nd | 0.209 | 0.648 |
+| 3rd | 0.244 | 0.699 |
+| 4th | — | 0.761 |
+| 5th | — | 0.830 |
+| 6th | — | 0.883 |
+| 7th | — | 0.866 |
+| top (p = 1.0) | **0.263** | **0.930** |
+
+Both links are monotone. C7's message quality buys **+65%** stance movement
+from bottom to top decile. C8's accept gate **does read quality** — adoption
+rises from 0.48 to 0.93 — but it saturates: the top three deciles move only
+0.81 → 0.93, and **32% of all messages already sit at p = 1.0**. The policy
+lives in the flat part of the curve, which is why improving the judge further
+(0.52 → 0.81 over training) bought no adoptions.
+
+Judge saturation, for completeness: **67.8%** of C7's judged messages score
+exactly 1.0 (mean 0.938), against 31.9% for C8 (mean 0.777). A benchmark whose
+judge is pinned at the ceiling for two-thirds of its decisions has little
+headroom left — relevant to how much §F.1's result can be pushed.
+
+## G.6 Finding 3 — C7's action budget is almost entirely idle
+
+**97.6%** of C7's per-episode messages (48.8 of 50.0) fall in periods where
+`n_candidates = 0`: no target, no judge call, reward exactly 0. The message is
+still rendered each period (`code/rl_env.py` renders before checking for a
+candidate), but from the disk cache, so it is cheap rather than free. This
+corrects §F.1's "zero LLM calls" claim and explains why C7 finished in 13.4 h
+against C8's 9.0 h *despite* C8 making 10× the judge calls: C7's extra time is
+rollout overhead, not inference on useful work.
+
+## G.7 What this changes about the conclusions
+
+1. **C7 stands, with a stated ceiling.** It is a real single-round learning
+   result (stance pull, +0.32 reward over the run, all 15 evals beating both
+   baselines), but its judge is saturated at 1.0 for 68% of decisions and 98%
+   of its action budget is idle.
+2. **C8's null result is a reward-design finding, not a mechanism finding.**
+   The imported exposure mechanism diffuses properly (§F.2) and its accept
+   gate demonstrably responds to message quality (§G.5). What fails is the
+   *reward*: 63.5% of it is a near-constant alignment offset whose weight
+   (λ = 0.2) sits on a saturated, low-variance measure, leaving the policy a
+   ~35% variable slice that an LLM gate — not the strategy — decides.
+3. **The concrete next lever** (a new experiment, not a patch): either drop or
+   variance-normalise the constant alignment offset so the gradient is not
+   diluted, and/or redefine the alignment reward on the *converting* subset
+   (adoptions per exposure, or `a(m)` only on accepted exposures) so the term
+   the policy can move is the term that pays. §G.1's recovered algebra gives
+   the exact arithmetic to size that change.
+
 
