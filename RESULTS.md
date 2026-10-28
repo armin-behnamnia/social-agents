@@ -998,8 +998,9 @@ earn exactly zero reward** (the trace confirms `n_candidates = 0` and
 `target = None` in every such row — 97.6% of the episode's messages). The
 multi-period diffusion problem is degenerate. What the policy can still
 affect is its *first-period* strategy choice — 5 persuaders acting into a
-fresh network — and §G shows what that reward actually consists of: **84%
-stance pull and 16% accept shaping, with no judge term at all** (`λ = 0`
+fresh network — and §G shows what that reward actually consists of: **77%
+stance pull, 16% accept shaping and 7.5% population-wide cascade credit, with
+no judge term at all** (`λ = 0`
 unless `PERSUASION_GOAL_LAMBDA` is set, which C7 does not set). The rest of
 the action space is inert.
 
@@ -1163,15 +1164,43 @@ claims depending on which judge you mean, and the report has to name which.
 
 | arm | reward / episode | stance pull | accept shaping | adoption bonus | alignment λ·Σa(m) | cascade credit |
 |---|---|---|---|---|---|---|
-| C7 cascade | **1.593** | 1.339 (**84.0%**) | 0.254 (15.9%) | — | — (λ = 0) | 0.001 |
+| C7 cascade | **1.593** | 1.221 (**76.6%**) | 0.254 (15.9%) | — | — (λ = 0) | 0.119 (7.5%) |
 | C8 exposure | **14.159** | 0 (frozen) | 0.246 (1.7%) | 4.922 (34.8%) | 8.991 (**63.5%**) | 0 |
 
 Split by *variance* — i.e. by which term can actually carry a gradient:
 
 | arm | reward var | stance pull | accept shaping | adoption bonus | alignment |
 |---|---|---|---|---|---|
-| C7 cascade | 0.1726 | **91.6%** | 0.8% | — | — |
+| C7 cascade | 0.1726 | **104.2%** | 0.8% | — | — (cascade 3.9%) |
 | C8 exposure | 0.1082 | — | 0.2% | **68.9%** | 25.1% |
+
+### G.2a The two stance terms are different things (and a correction)
+
+C7 has **two** terms that both measure stance movement, and they must not be
+confused:
+
+- **stance pull** — `Σ −Δs` over events **sourced by a persuader**. Per event,
+  attributed to *that* persuader, magnitude ∝ how far the target moved. It is
+  the direct, local, dense signal: 1.221/episode (76.6%), 5.08 events/episode.
+- **cascade credit** — `κ·(mean_stance_before − mean_stance_after)`, with
+  `κ = 0.5`. Per *period*, a **population aggregate**, and added to **every**
+  persuader (it is a cooperative/team term). Because it telescopes, its episode
+  total is `κ·Σ_all(−Δs)/50` — it counts movement caused by **anyone**,
+  including the ~40/episode organic BFS events the persuader never touched
+  directly. 0.119/episode (7.5%).
+
+The distinction matters because C7's propagation is a *cascade*: the persuader
+directly influences ~5 agents while ~40 more move through organic spread, so a
+purely local reward would give no credit for the indirect majority. The cascade
+term closes that gap — at the price of a shared, unfocused signal (a persuader
+is credited for movement it did not cause, and debited for movement against).
+
+*(Correction, 2026-10-28: an earlier revision of this section listed the C7
+cascade credit as 0.001 (0.04%). That was wrong twice over — the telescoping
+used only the recorded period means 1…10, missing the period-0 movement where
+almost all of it happens, and it used κ = 0.5 rather than the effective
+`5·κ = 2.5` in the team-summed reward, since the term is broadcast to all five
+persuaders. With both fixed the decomposition closes to −0.00000.)*
 
 ## G.3 Finding 1 — C8's reward is about two-thirds a constant
 
@@ -1194,9 +1223,10 @@ the component it *can* push is the one that barely touches the reward.
 
 ## G.4 Finding 2 — C7's reward is the mirror image
 
-84% of C7's reward is the stance pull and **91.6% of its variance** — the
-signal is real, behavioural and movable. Its trend (+0.00107/iter, r = 0.74)
-*is* the learning, and it is the reason the eval improves. Note the causal
+**77%** of C7's reward is the stance pull and it carries essentially all the
+variance (104% of it — more than 100% because it is *negatively* correlated
+with the cascade credit, r = −0.40). Its trend (+0.00097/iter, r = 0.69) *is*
+the learning, and it is the reason the eval improves. Note the causal
 chain this implies: the BT judge is never rewarded, yet it rose
 (0.931 → 0.979). It rose **because** it is instrumental — a better-scoring
 message produces a larger stance pull (§G.5), and the pull is what pays.

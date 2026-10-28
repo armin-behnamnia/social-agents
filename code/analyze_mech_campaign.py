@@ -36,6 +36,38 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 ARMS = {"cascade": {"title": "C7 cascade (stance-ful)", "bonus": 0.0, "lam": 0.0},
         "exposure": {"title": "C8 exposure (stance-less)", "bonus": 1.0, "lam": 0.2}}
+N_AGENTS = 50
+N_PERSUADERS = 5
+CASCADE_DISCOUNT = 0.5
+
+
+def _load_stance_terms(arm):
+    """Per-episode (Σ_persuader −Δs, Σ_all −Δs) from the diffusion events.
+
+    The reward's stance pull is `−Δs` over events *sourced by* a persuader;
+    the cascade credit is `κ·(mean_stance_before − mean_stance_after)`, which
+    summed over the episode telescopes to `κ·Σ_all(−Δs)/N_AGENTS` — note the
+    Σ must be over ALL events, and the term is added to every persuader, so in
+    the team-summed reward (what `period_reward_sum` records) its coefficient
+    is `N_PERSUADERS·κ`. Measuring only the recorded period means 1..10 misses
+    the period-0 movement and understates it by ~5×.
+    """
+    ev: dict[tuple, list[float]] = defaultdict(lambda: [0.0, 0.0])
+    path = ROOT / "output" / f"ppo_mech_{arm}" / "live" / "trace" / "events.jsonl"
+    for line in path.open(errors="replace"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        k = (int(e["iteration"]), e["episode"])
+        nd = -float(e.get("target_delta_stance") or 0.0)
+        if e.get("source_is_persuader"):
+            ev[k][0] += nd
+        ev[k][1] += nd
+    return ev
 
 
 def _load_periods(arm):
@@ -80,7 +112,7 @@ def _load_periods(arm):
     return rows
 
 
-def _episodes(rows, cfg):
+def _episodes(rows, cfg, ev):
     """Aggregate to one record per episode and decompose the reward."""
     eps: dict[tuple, dict] = defaultdict(lambda: {
         "reward": 0.0, "n_accept": 0.0, "n_adopt": 0.0, "sum_a": 0.0,
@@ -105,16 +137,16 @@ def _episodes(rows, cfg):
         if a["stance_first"] is None:
             a["stance_first"] = r["mean_stance"]
         a["stance_last"] = r["mean_stance"]
-    for a in eps.values():
+    for k, a in eps.items():
+        pull, all_neg = ev.get(k, (0.0, 0.0))
+        a["t_pull"] = pull
+        a["t_cascade"] = N_PERSUADERS * CASCADE_DISCOUNT * all_neg / N_AGENTS
         a["t_accept"] = 0.05 * a["n_accept"]
         a["t_bonus"] = cfg["bonus"] * a["n_adopt"]
         a["t_align"] = cfg["lam"] * a["sum_a"]
-        # cascade credit: 0.5*(prev_mean - mean) telescopes over periods to
-        # 0.5*(initial - final); _prev_mean_stance is seeded from the data
-        # (rl_env.py:488), so this is the recorded first/last population mean.
-        a["t_cascade"] = 0.5 * (a["stance_first"] - a["stance_last"])
-        a["t_stance"] = (a["reward"] - a["t_accept"] - a["t_bonus"]
-                         - a["t_align"] - a["t_cascade"])
+        # closure check: everything not named must be ~0
+        a["t_resid"] = (a["reward"] - a["t_pull"] - a["t_cascade"]
+                        - a["t_accept"] - a["t_bonus"] - a["t_align"])
     return eps
 
 
@@ -181,8 +213,8 @@ def analyse(arm):
     }
 
     # --- per-episode decomposition ----------------------------------
-    eps = _episodes(rows, cfg)
-    keys = ["t_stance", "t_accept", "t_bonus", "t_align", "t_cascade"]
+    eps = _episodes(rows, cfg, _load_stance_terms(arm))
+    keys = ["t_pull", "t_cascade", "t_accept", "t_bonus", "t_align"]
     means = {k: st.mean(e[k] for e in eps.values()) for k in keys}
     reward_mean = st.mean(e["reward"] for e in eps.values())
     total_var = st.pvariance([e["reward"] for e in eps.values()])

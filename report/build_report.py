@@ -1135,7 +1135,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 <div class="aside-container">
   <div class="aside">
     <div class="sidebar-title">C7 — a clean single-round win</div>
-    <p><strong>Beats both baselines in all 15 evals.</strong> The paired greedy reward rises 1.413 → <span class="mono">1.684</span>; every eval beats random (t = +4.3…+7.7) and the heuristic by a wide margin. 84% of its reward is the stance pull (92% of its variance), with <span class="mono">λ=0</span> — the judge is <em>not</em> in the reward, so its rise (0.931 → 0.979) is instrumental: better-scoring messages pull stances further. Strategy entropy does <em>not</em> collapse (1.70 → 1.82). Ceiling: 68% of its judged messages sit at exactly 1.0.</p>
+    <p><strong>Beats both baselines in all 15 evals.</strong> The paired greedy reward rises 1.413 → <span class="mono">1.684</span>; every eval beats random (t = +4.3…+7.7) and the heuristic by a wide margin. 77% of its reward is the stance pull (and essentially all of its variance) plus 7.5% population-wide cascade credit, with <span class="mono">λ=0</span> — the judge is <em>not</em> in the reward, so its rise (0.931 → 0.979) is instrumental: better-scoring messages pull stances further. Strategy entropy does <em>not</em> collapse (1.70 → 1.82). Ceiling: 68% of its judged messages sit at exactly 1.0.</p>
   </div>
   <div class="aside">
     <div class="sidebar-title">C8 — quality up, adoption flat</div>
@@ -1145,7 +1145,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 <div class="aside-container">
   <div class="aside">
     <div class="sidebar-title">the reward, decomposed from the data</div>
-    <p>C8's stance term is identically zero, so regressing its reward on the recorded counts recovers the weights <strong>exactly</strong> (<span class="mono">R²=1.000000</span>): <span class="mono">1.05·n_adopt + 0.2·Σa(m)</span>. That validates attributing C7's remainder to the stance pull. Note <span class="mono">a(m)</span> is the goal-axis judge, <em>not</em> the BT <span class="mono">persuasiveness</span> score the eval reports — they correlate r = +0.14 (C7) / −0.01 (C8).</p>
+    <p>C8's stance term is identically zero, so regressing its reward on the recorded counts recovers the weights <strong>exactly</strong> (<span class="mono">R²=1.000000</span>): <span class="mono">1.05·n_adopt + 0.2·Σa(m)</span>. C7 needs four regressors to fit, because its two stance terms are distinct: the per-event <em>pull</em> (attributed, coefficient 1.0) and the per-period <em>cascade credit</em> (a team term added to all five actors, so coefficient <span class="mono">5κ = 2.5</span> in the summed reward). Note <span class="mono">a(m)</span> is the goal-axis judge, <em>not</em> the BT <span class="mono">persuasiveness</span> score the eval reports — they correlate r = +0.14 (C7) / −0.01 (C8).</p>
   </div>
   <div class="aside">
     <div class="sidebar-title">the decisive number</div>
@@ -1154,7 +1154,7 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--rule);font-si
 </div>
 <div class="table-wrapper">
 <table>
-  <thead><tr><th class="left">arm</th><th>reward / episode</th><th>stance pull</th><th>accept shaping</th><th>adoption bonus</th><th>alignment λ·Σa(m)</th><th class="left">variance driver</th></tr></thead>
+  <thead><tr><th class="left">arm</th><th>reward / episode</th><th>stance pull</th><th>cascade credit</th><th>accept shaping</th><th>adoption bonus</th><th>alignment λ·Σa(m)</th><th class="left">variance driver</th></tr></thead>
   <tbody id="mechDecompTable"></tbody>
 </table>
 </div>
@@ -1744,7 +1744,8 @@ if(mechDecomp && D.mech_analysis && D.mech_analysis.arms){
     mechDecomp.insertAdjacentHTML('beforeend',
       `<tr><td class="left">${armName[k]}</td>`+
       `<td class="mono">${d.mean_reward}</td>`+
-      `<td class="mono">${num(t.t_stance)} (${pct(s.t_stance)})</td>`+
+      `<td class="mono">${num(t.t_pull)} (${pct(s.t_pull)})</td>`+
+      `<td class="mono">${num(t.t_cascade)} (${pct(s.t_cascade)})</td>`+
       `<td class="mono">${num(t.t_accept)} (${pct(s.t_accept)})</td>`+
       `<td class="mono">${num(t.t_bonus)} (${pct(s.t_bonus)})</td>`+
       `<td class="mono">${num(t.t_align)} (${pct(s.t_align)})</td>`+
