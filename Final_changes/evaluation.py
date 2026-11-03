@@ -15,8 +15,7 @@ STATE_FIELDS = (
     'exposure_count num_infected_neighbors new_adopter adoption_time degree '
     'degree_centrality betweenness_centrality message_id parent_message_id '
     'original_message_id received_message_history generated_message_history '
-    'behavior_history interaction_history accept accept_embedding '
-    'decision_history topic_exposures dominant_decision_style'
+    'behavior_history interaction_history accept accept_embedding'
 ).split()
 
 
@@ -98,9 +97,8 @@ class EvaluationMixin:
                     betweenness_centrality=agent.betweenness_centrality)
 
     def _diffusion_step(self, agents, period, stance_aware):
-        self._history_agents = agents
         for agent in agents:
-            if agent.preference_state != 1 and not agent.isSeed:
+            if not agent.isSeed:
                 self.candidate_snapshots.append(dict(
                     snapshot_id=f'{self.run_id}:{period}:{agent.id}',
                     run_id=self.run_id, pair_id=self.pair_id, period=period,
@@ -116,7 +114,7 @@ class EvaluationMixin:
         for source in sources:
             for _, neighbor_id in source.network.get_neighbors(source):
                 target = agents.get_agent(neighbor_id)
-                if target is None or target.id == source.id:
+                if target is None or target.id == source.id or target.isSeed:
                     continue
                 event_id = f'{self.run_id}:{len(self.diffusion_events)}'
                 # This record is frozen BEFORE the target receives the current message.
@@ -140,6 +138,8 @@ class EvaluationMixin:
                 pre['source_estimated_stance'] = self.public_features(source)['estimated_stance']
                 pre['estimated_alignment'] = 1 - abs(pre['estimated_stance'] - pre['source_estimated_stance']) / 2
                 before = len(self.diffusion_events)
+                was_adopted = target.preference_state == 1
+                target.new_adopter = 0
                 target.exposure_count += 1
                 fn = target.infection_stance_aware if stance_aware else target.infection
                 fn(agents, period, self.diffusion_events, self.message_events, source)
@@ -150,6 +150,9 @@ class EvaluationMixin:
                     raise AssertionError('Exactly one final event is required per exposure.')
                 event = self.diffusion_events[-1]
                 message = self.message_events[-1]
+                new_adoption = int(bool(event['adopted']) and not was_adopted)
+                event['new_adoption'] = new_adoption
+                message['new_adoption'] = new_adoption
                 metadata = dict(event_id=event_id, pair_id=self.pair_id,
                                 run_id=self.run_id, condition=self.condition)
                 event.update(metadata)
@@ -196,7 +199,8 @@ class EvaluationMixin:
                 ))
         self.record_trajectory(agents, period)
         self._period_index += 1
-        return all(a.preference_state == 1 for a in agents)
+        # Observation continues for the configured horizon, even after saturation.
+        return False
 
     def save_diffusion_events(self, method, k):
         # A unique pair folder prevents overwrites between repetitions.
@@ -211,20 +215,17 @@ class EvaluationMixin:
         for name, rows in tables.items():
             pd.DataFrame(rows).to_csv(os.path.join(folder, name + '.csv'), index=False,
                                       encoding='utf-8-sig')
-        with open(os.path.join(folder, 'node_histories.json'), 'w', encoding='utf-8') as out:
-            json.dump({str(a.id): dict(dominant_decision_style=a.dominant_decision_style,
-                       topic_exposures=a.topic_exposures, decisions=a.decision_history)
-                       for a in self._history_agents}, out, ensure_ascii=False, indent=2)
         frame = pd.DataFrame(self.diffusion_events)
         metrics = dict(pair_id=self.pair_id, run_id=self.run_id, condition=self.condition,
                        interactions=len(frame), agents=len(self._initial_agents))
         if len(frame):
             delta = frame.target_delta_stance.to_numpy(dtype=float)
-            metrics.update(new_adopters=int(frame['new_adoption'].sum()) if 'new_adoption' in frame else int(frame.adopted.sum()),
+            metrics.update(new_adopters=int(frame.new_adoption.sum()),
+                           acceptance_events=int(frame.adopted.sum()),
                            mean_absolute_shift=float(np.abs(delta).mean()),
                            zero_shift_rmse=float(np.sqrt(np.mean(delta ** 2))))
         else:
-            metrics.update(new_adopters=0, mean_absolute_shift=None, zero_shift_rmse=None)
+            metrics.update(new_adopters=0, acceptance_events=0, mean_absolute_shift=None, zero_shift_rmse=None)
         metrics['seed_count'] = sum(s.get('isSeed', False) for s in self._initial_agents.values())
         metrics['final_adopted'] = metrics['seed_count'] + metrics['new_adopters']
         with open(os.path.join(folder, 'metrics.json'), 'w', encoding='utf-8') as out:

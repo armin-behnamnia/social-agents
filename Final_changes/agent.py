@@ -375,7 +375,7 @@ class LLMSocialAgent(NetworkAgent):
         print("decision1,2: ", decision1, decision2); return False
     def infection(self, agents, period, diffusion_events, message_events, source_agent):
         # Infected nodes cannot be infected again.
-        if self.preference_state == 1:
+        if self.isSeed and self.preference_state == 1:
             return False
 
         if self.id == source_agent.id:
@@ -417,7 +417,24 @@ class LLMSocialAgent(NetworkAgent):
             source_post, self.profile,
             [row for row in self.decision_history if row['topic'] == topic_key],
             topic_exposure_count=encounter, decision_mode=mode)
-        decision_text = result['decision']
+        # Accept structured responses without converting the whole dict to a label.
+        # Keep legacy label-only providers compatible; do not invent a rationale.
+        if isinstance(result, dict):
+            result = dict(result)
+            decision_text = str(result.get('decision', '')).strip().upper()
+            result.setdefault('reason', '')
+            result.setdefault('reason_source', 'llm' if result['reason'] else 'missing')
+        elif isinstance(result, str):
+            decision_text = result.strip().upper()
+            result = dict(decision=decision_text, reason='',
+                          reason_source='legacy_missing')
+        else:
+            raise ValueError(f'Invalid accept_message response: {result!r}')
+        if decision_text not in {'ACCEPT', 'REJECT'}:
+            raise ValueError(
+                'accept_message must return ACCEPT or REJECT, either as a '
+                f'label or in the decision field; received {result!r}')
+        result['decision'] = decision_text
         self.topic_exposures[topic_key] = encounter
         decision_record = dict(period=period, source=source_agent.id, topic=topic_key,
                                topic_exposure_count=encounter, decision=decision_text,

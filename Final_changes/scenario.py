@@ -24,7 +24,8 @@ class LLMScenario(Scenario):
         self.evaluation_mode = 'reference'  # 'legacy' retains the original two-condition study
         self.forecast_horizons = [1, 2]
         self.top_k = 10
-        self.stance_topic = 'the central proposition of the initial seed narrative'
+        self.stance_topic = 'Using LocalBiz is beneficial for helping local businesses grow.'
+        #self.stance_topic = 'Taking precautions such as ventilation, well-fitting masks in crowded indoor spaces, and staying home when sick is beneficial for reducing COVID-19 transmission.'
         self.text_stance_observer = False  # enable explicit topic-anchored LLM estimates
         self.random_seed = 30 # Change between independent repetitions.
         self.period_num: int = 10
@@ -50,8 +51,11 @@ class LLMScenario(Scenario):
         self.initial_infected_pecentage: float = 0.05 # for 100 should change to 0.03
         self.stance_threshold = 0.7
         self.scenario_type = "Generic" #"Selective" , "Generative", "RL_Generative"
-        self.general_influence_msg: str = "Discover LocalBiz, a service designed to help local businesses grow and succeed. Explore practical solutions for your business and discover new opportunities for growth. #LocalBiz"
-        self.sub_influence_msgs =["LocalBiz helps small businesses improve their online presence and attract more customers.","LocalBiz offers affordable digital tools to help businesses manage costs and improve efficiency.","LocalBiz connects local businesses with new customers and supports local economic growth."]
+        #self.general_influence_msg: str =  "Help reduce the spread of COVID-19. Improve indoor ventilation, consider wearing a well-fitting mask in crowded indoor spaces, and stay home when you are sick to help protect yourself and others."
+        #self.sub_influence_msgs =["Protect yourself from COVID-19 by choosing well-ventilated spaces and considering a well-fitting mask in crowded indoor settings.","Help protect loved ones who are at higher risk of severe COVID-19. Stay home when sick and take extra precautions when spending time together.","Help reduce COVID-19 transmission in shared spaces. Improve indoor ventilation, stay home when sick, and consider a well-fitting mask in crowded indoor settings."]
+        self.general_influence_msg: str =  "Discover LocalBiz, a service designed to help local businesses grow and succeed. Explore practical solutions for your business and discover new opportunities for growth. #LocalBiz"
+        self.sub_influence_msgs =["Discover LocalBiz, a service designed to help local businesses grow and succeed. Explore practical solutions for your business and discover new opportunities for growth. #LocalBiz","LocalBiz offers affordable digital tools to help businesses manage costs and improve efficiency.","LocalBiz connects local businesses with new customers and supports local economic growth."]
+        
         self.sub_influence_msgs_embeddings = [text2embedding(x) for x in self.sub_influence_msgs]
         self.influence_param: float = 0.2
         self.stance_influence_rate: float = 0.2
