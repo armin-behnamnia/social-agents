@@ -1,7 +1,84 @@
+import random
+from pathlib import Path
+
 from Melodie import Scenario
 from source.agent import LLMSocialAgent
 from Melodie import AgentList
 from source.tools import text2embedding
+
+# Change only this title to select a row from the Topics worksheet.
+# Available: VoluntaryVaccination, VerifyBeforeSharing,
+# HealthMisinformationCorrection, ClimateFriendlyTravel
+DATA_TITLE = "SharedSkillSpaces" #"localbiz", "SharedSkillSpaces" , "LocalElections" 
+# Keep topics.xlsx beside this scenario.py, independent of working directory.
+DATA_FILE = Path(__file__).resolve().parent / "topics.xlsx"
+
+
+def load_topic(data_file, title):
+    """Read a selected topic from the Topics worksheet of an Excel workbook."""
+    from openpyxl import load_workbook
+
+    path = Path(data_file)
+    if not path.is_file():
+        raise FileNotFoundError(f"Topic dataset not found: {path}")
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        if "Topics" not in workbook.sheetnames:
+            raise ValueError("Topic workbook must contain a 'Topics' worksheet.")
+        rows = workbook["Topics"].iter_rows(values_only=True)
+        headers = next(rows, ())
+        headers = [str(value).strip() if value is not None else "" for value in headers]
+        nonempty_headers = [name for name in headers if name]
+        if len(nonempty_headers) != len(set(nonempty_headers)):
+            raise ValueError("Duplicate column names in Topics worksheet.")
+        required = ("title", "stance_topic", "general_influence_msg")
+        if any(field not in headers for field in required):
+            raise ValueError(f"Topics worksheet requires columns: {', '.join(required)}")
+        message_columns = sorted(
+            (name for name in headers
+             if name.startswith("sub_influence_msg_")
+             and name.removeprefix("sub_influence_msg_").isdigit()),
+            key=lambda name: int(name.removeprefix("sub_influence_msg_")),
+        )
+        if not message_columns:
+            raise ValueError("Provide sub_influence_msg_1, sub_influence_msg_2, etc.")
+        records = []
+        for row_number, values in enumerate(rows, start=2):
+            if all(value is None or value == "" for value in values):
+                continue
+            record = dict(zip(headers, values))
+            messages = [record.get(column) for column in message_columns
+                        if record.get(column) is not None and record.get(column) != ""]
+            record["sub_influence_msgs"] = messages
+            record["research_context"] = record.get("research_context") or ""
+            records.append(record)
+    finally:
+        workbook.close()
+    if not records:
+        raise ValueError("Topics worksheet contains no scenario rows.")
+
+    topics = {}
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("Each scenario must be an object.")
+        for field in ("title", "stance_topic", "general_influence_msg"):
+            if not isinstance(record.get(field), str) or not record[field].strip():
+                raise ValueError(f"Each scenario needs a non-empty string: {field}")
+        record_title = record["title"]
+        if record_title in topics:
+            raise ValueError(f"Duplicate topic title: {record_title}")
+        messages = record.get("sub_influence_msgs")
+        if not isinstance(messages, list) or not messages or any(
+            not isinstance(message, str) or not message.strip() for message in messages
+        ):
+            raise ValueError(f"Invalid sub_influence_msgs for {record_title}")
+        topics[record_title] = record
+    if title not in topics:
+        raise ValueError(
+            f"Unknown DATA_TITLE {title!r}. Available titles: {', '.join(topics)}"
+        )
+    return topics[title]
+
 
 class LLMScenario(Scenario):
     @property
@@ -24,13 +101,14 @@ class LLMScenario(Scenario):
         self.evaluation_mode = 'reference'  # 'legacy' retains the original two-condition study
         self.forecast_horizons = [1, 2]
         self.top_k = 10
-        self.stance_topic = 'Using LocalBiz is beneficial for helping local businesses grow.'
+        
+        #self.stance_topic = 'Using LocalBiz is beneficial for helping local businesses grow.'
         #self.stance_topic = 'Taking precautions such as ventilation, well-fitting masks in crowded indoor spaces, and staying home when sick is beneficial for reducing COVID-19 transmission.'
         self.text_stance_observer = False  # enable explicit topic-anchored LLM estimates
-        self.random_seed = 30 # Change between independent repetitions.
+        self.random_seed = 10 # Change between independent repetitions.
         self.period_num: int = 10
         self.run_num: int = 1
-        self.agent_num: int = 300
+        self.agent_num: int = 100
         # Inference
         self.num_particles = 10
         self.inference_state_min = -1.0
@@ -50,17 +128,22 @@ class LLMScenario(Scenario):
         self.alpha_degree_stance = 0.2
         self.initial_infected_pecentage: float = 0.05 # for 100 should change to 0.03
         self.stance_threshold = 0.7
-        self.scenario_type = "Generic" #"Selective" , "Generative", "RL_Generative"
-        #self.general_influence_msg: str =  "Help reduce the spread of COVID-19. Improve indoor ventilation, consider wearing a well-fitting mask in crowded indoor spaces, and stay home when you are sick to help protect yourself and others."
-        #self.sub_influence_msgs =["Protect yourself from COVID-19 by choosing well-ventilated spaces and considering a well-fitting mask in crowded indoor settings.","Help protect loved ones who are at higher risk of severe COVID-19. Stay home when sick and take extra precautions when spending time together.","Help reduce COVID-19 transmission in shared spaces. Improve indoor ventilation, stay home when sick, and consider a well-fitting mask in crowded indoor settings."]
-        self.general_influence_msg: str =  "Discover LocalBiz, a service designed to help local businesses grow and succeed. Explore practical solutions for your business and discover new opportunities for growth. #LocalBiz"
-        self.sub_influence_msgs =["Discover LocalBiz, a service designed to help local businesses grow and succeed. Explore practical solutions for your business and discover new opportunities for growth. #LocalBiz","LocalBiz offers affordable digital tools to help businesses manage costs and improve efficiency.","LocalBiz connects local businesses with new customers and supports local economic growth."]
-        
+
+        self.scenario_type = "Generic"  # Generic, Selective, or Generative
+        self.data_title = "localbiz" # VoluntaryVaccination , VerifyBeforeSharing , HealthMisinformationCorrection , ClimateFriendlyTravel
+        selected = load_topic(DATA_FILE, self.data_title)
+        self.topic = selected["title"]
+        self.scenario_name = f"{self.topic}_{self.scenario_type}"
+        self.stance_topic = selected["stance_topic"]
+        self.general_influence_msg = selected["general_influence_msg"]
+        self.sub_influence_msgs = list(selected["sub_influence_msgs"])
+        self.topic_research_context = selected.get("research_context", "")
+
         self.sub_influence_msgs_embeddings = [text2embedding(x) for x in self.sub_influence_msgs]
         self.influence_param: float = 0.2
         self.stance_influence_rate: float = 0.2
         self.id_scenario: int = 0
-        self.seed_size = 50
+        self.seed_size = 10
         #self.agents = AgentList(LLMSocialAgent)
         Scenario.stance_params = {
         "support_ratio": 0.60,
