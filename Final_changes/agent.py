@@ -75,7 +75,6 @@ class LLMSocialAgent(NetworkAgent):
 
         self.post: str = ""
         self.internalized : str = ""
-        self.emerged = False
         self.embedding = None
         self.profile_embedding = None
         self.post_embedding = None
@@ -132,17 +131,23 @@ class LLMSocialAgent(NetworkAgent):
         self,
         source_agent,
         source_influence_strength,
-        target_susceptibility_rate
+        target_susceptibility_rate,
+        accepted=True
     ):
 
         old_stance = float(self.stance)
 
-        new_stance = (
-            old_stance
-            + source_influence_strength
+        # Design B: every exposure shifts stance toward the source;
+        # REJECT uses a smaller fraction (reject_influence_ratio) than ACCEPT.
+        ratio = 1.0 if accepted else float(
+            getattr(self.scenario, 'reject_influence_ratio', 0.25))
+        step = (
+            ratio
+            * source_influence_strength
             * target_susceptibility_rate
             * (source_agent.stance - old_stance)
         )
+        new_stance = old_stance + step
 
         new_stance = np.clip(
             new_stance,
@@ -239,135 +244,6 @@ class LLMSocialAgent(NetworkAgent):
         best_idx = similarities.index(max(similarities))
         return messages[best_idx], messages_embeddings[best_idx]
 
-    def infection_stance_aware(self, agents: "AgentList[LLMSocialAgent]", 
-        period: int, diffusion_events: list, message_events: list, source_agent):
-       
-        if self.preference_state == 1:
-            return False
-
-        #print("emerged? ",self.emerged, " id:", self.id); # return False
-        if self.id == source_agent.id: print("same_target_id, target_id: ", self.id) ; return False
-
-        if (source_agent.post is None or not str(source_agent.post).strip()):
-           # print(f"WARNING: source Agent {source_agent.id} has an empty post. Skipping influence; target_id: ", self.id)
-            return False
-
-        # ----------------------------------------------------------
-        # 2. Prepare source message embedding
-        # ----------------------------------------------------------
-
-        if source_agent.post_embedding is None: 
-            source_agent.post_embedding = self._get_embedding(source_agent.post)
-            #print(f"WARNING: source Agent {source_agent.id} has no valid post embedding. Skipping influence. target_id:", self.id)
-            # Continue with the newly computed embedding.
-
-        # ----------------------------------------------------------
-        # 3. Prepare target profile embedding
-        # ----------------------------------------------------------
-
-        if self.embedding is None and self.profile: 
-            self.embedding = self._get_embedding(self.profile)
-            self.profile_embedding = self.embedding
-
-        # ----------------------------------------------------------
-
-        # ----------------------------------------------------------
-        # 4. Calculate influence probability
-        # ----------------------------------------------------------
-
-        influence_prob = self.calculate_influence_prob(source_agent); influence_prob = float(np.clip(influence_prob, 0.0, 1.0))
-
-        # ----------------------------------------------------------
-        # 5. Update latent internal state
-        # ----------------------------------------------------------
-
-        target_stance_before = float(self.stance); target_stance_after = float(self.stance)
-
-        if self.scenario.stance_influence_rate > 0:
-
-            (target_stance_before, target_stance_after) = self.update_agent_stance(source_agent=source_agent,
-                source_influence_strength=influence_prob,
-                target_susceptibility_rate=(self.scenario.stance_influence_rate))
-
-        stance_delta = (target_stance_after - target_stance_before)
-
-        # ----------------------------------------------------------
-        # 6. Store accepted message
-        # ----------------------------------------------------------
-        #acceptance_result = accept_message (source_agent.post, self.profile, self.exposure_count, self.stance )
-        #if acceptance_result is contain accept:
-
-        Internalized_message = generate_response_message( source_agent.post, self.profile, abs(stance_delta) ) #Experienced_message
-        self.internalized = Internalized_message 
-        self.internalized_embedding = self._get_embedding(self.internalized)
-
-        # ----------------------------------------------------------
-        # 7. Check whether the target crosses the adoption threshold
-        # ----------------------------------------------------------
-
-        # reached_adoption_threshold = (target_stance_after <= propagation_threshold)
-
-
-        estimated_stance_shift = None
-        estimated_stance_shift_post = None
-        estimated_stance_shift_profile = None
-        new_profile = None; generated_post = None;
-        new_profile = update_profile(received=self.internalized , profile=self.profile)
-        new_profile_embedding = self._get_embedding(new_profile)
-        generated_post = generate_information(received= self.internalized , profile=self.profile, old_post= self.post)
-        generated_post_embedding = self._get_embedding(generated_post)
-     
-        # ----------------------------------------------------------
-        # 8. Protect against invalid LLM output
-        # ----------------------------------------------------------
-
-        if (generated_post is not None):
-            Inferr_stance_post = 0 #Inference_stance_post( source_agent.post, generated_post)
-            estimated_stance_shift_post = 1- self._cosine_similarity(generated_post_embedding, source_agent.post_embedding)
-
-        old_profile = self.profile
-        old_profile_embedding = self._get_embedding(old_profile)
-        old_post = self.post
-        self.post = self.internalized; self.post_embedding = self.internalized_embedding
-        if new_profile is not None:
-            estimated_stance_shift_profile = 1- self._cosine_similarity(old_profile_embedding, new_profile_embedding)
-            
-        if new_profile is not None and generated_post is not None:
-            estimated_stance_shift = estimated_stance_shift_post * estimated_stance_shift_profile
-
-        # ----------------------------------------------------------
-        # 9. Message lineage
-        # ----------------------------------------------------------
-
-        parent_message_id = (source_agent.message_id)
-        original_message_id = (source_agent.original_message_id if source_agent.original_message_id is not None else source_agent.message_id)
-        self.message_id = (self.generate_message_id())
-        self.parent_message_id = (parent_message_id)
-        self.original_message_id = (original_message_id)
-
-        # ----------------------------------------------------------
-        # 10. Save message event
-        # ----------------------------------------------------------
-
-        self.post = str(generated_post).strip() if generated_post is not None else old_post
-        self.post_embedding = generated_post_embedding
-        self.profile = new_profile if new_profile is not None else old_profile
-        self.profile_embedding = new_profile_embedding if new_profile is not None else old_profile_embedding
-        self.embedding = self.profile_embedding
-        post_changed = (generated_post is not None and str(generated_post).strip() != str(old_post or "").strip())
-        profile_changed = (new_profile is not None and new_profile != old_profile)
-        self.emerged = post_changed or profile_changed
-        if self.emerged:
-            self.preference_state = 1
-            self.adoption_time = period
-            self.new_adopter = 1
-        decision = "ACCEPT" if self.emerged else "REJECT"
-        self.save_message_event(message_events, period, source_agent, influence_prob, estimated_stance_shift,
-        estimated_stance_shift_post, estimated_stance_shift_profile, old_profile, old_profile_embedding,
-        new_profile, new_profile_embedding, source_agent.post, source_agent.post_embedding, generated_post,
-        generated_post_embedding, target_stance_before, target_stance_after, decision)
-        self.save_diffusion_event( diffusion_events, period, source_agent, target_stance_before, target_stance_after, influence_prob, decision)
-        return self.emerged
     def infection_test(self, agents, period,diffusion_events, message_events, source_agent):
         decision1 = accept_message(source_agent.post, self.profile, self.received_message_history)
         decision2 = accept_message2(source_agent.post, self.profile, self.received_message_history)
@@ -381,7 +257,7 @@ class LLMSocialAgent(NetworkAgent):
         if self.id == source_agent.id:
             return False
 
-        source_post = source_agent.post
+        source_post = source_agent.post; #print("source_post: ", source_post )
         if source_post is None or not str(source_post).strip():
             return False
 
@@ -449,19 +325,24 @@ class LLMSocialAgent(NetworkAgent):
 
         # Reference dynamics: one acceptance gate, then latent response on every exposure.
         # This hidden update is never a predictor feature for the current event.
-        if getattr(self.scenario, 'evaluation_mode', 'reference') == 'reference':
-            target_stance_before, target_stance_after = self.update_agent_stance(
-                source_agent=source_agent, source_influence_strength=influence_prob,
-                target_susceptibility_rate=self.scenario.stance_influence_rate)
+        target_stance_before, target_stance_after = self.update_agent_stance(
+            source_agent=source_agent, source_influence_strength=influence_prob,
+            target_susceptibility_rate=self.scenario.stance_influence_rate,
+            accepted=accepted)
+        stance_delta = target_stance_after - target_stance_before
 
         if accepted:
+            # Only on ACCEPT: internalize the message, then derive profile and post from it.
+            self.internalized = generate_response_message(source_post, self.profile, abs(stance_delta))
+            self.internalized_embedding = self._get_embedding(self.internalized)
+            received_text = self.internalized or source_post
             new_profile = update_profile(
-                received=source_post,
+                received=received_text,
                 profile=self.profile,
             )
 
             generated_post = generate_information(
-                received=source_post,
+                received=received_text,
                 profile=self.profile,
                 old_post=self.post,
             )
@@ -487,7 +368,6 @@ class LLMSocialAgent(NetworkAgent):
             )
 
             # Acceptance defines infection in your stated model.
-            self.emerged = True
             self.preference_state = 1
             if not was_adopted:
                 self.adoption_time = period
@@ -513,7 +393,9 @@ class LLMSocialAgent(NetworkAgent):
             period,
             source_agent,
             influence_prob,
-            0, 0, 0,
+            0.0,
+            1.0 - self._cosine_similarity(source_agent.post_embedding, self.post_embedding),
+            1.0 - self._cosine_similarity(old_profile_embedding, self.profile_embedding),
             old_profile,
             old_profile_embedding,
             self.profile,

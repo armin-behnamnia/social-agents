@@ -1,3 +1,4 @@
+import os
 import random
 from pathlib import Path
 
@@ -81,13 +82,14 @@ def load_topic(data_file, title):
 
 
 class LLMScenario(Scenario):
+    scenario_type = "Generative"
     @property
     def scenario_name(self):
         """Compatibility name; an explicitly assigned name takes precedence."""
         explicit = getattr(self, '_scenario_name', None)
         if explicit:
             return explicit
-        topic = getattr(self, 'topic', None) or 'localbiz'
+        topic = getattr(self, 'topic', None)
         message_type = (getattr(self, 'initial_message_type', None)
                         or getattr(self, 'scenario_type', 'Generic'))
         return f'{topic}_{message_type}'
@@ -98,15 +100,15 @@ class LLMScenario(Scenario):
 
     def setup(self):
         self.debug = False
-        self.evaluation_mode = 'reference'  # 'legacy' retains the original two-condition study
+        self.evaluation_mode = 'reference'  # single unified dynamics
         self.forecast_horizons = [1, 2]
         self.top_k = 10
         
         #self.stance_topic = 'Using LocalBiz is beneficial for helping local businesses grow.'
         #self.stance_topic = 'Taking precautions such as ventilation, well-fitting masks in crowded indoor spaces, and staying home when sick is beneficial for reducing COVID-19 transmission.'
         self.text_stance_observer = False  # enable explicit topic-anchored LLM estimates
-        self.random_seed = 10 # Change between independent repetitions.
-        self.period_num: int = 10
+        self.random_seed = int(os.environ.get('LSD_RANDOM_SEED', 5)) # Change between independent repetitions.
+        self.period_num: int = 5
         self.run_num: int = 1
         self.agent_num: int = 100
         # Inference
@@ -126,11 +128,9 @@ class LLMScenario(Scenario):
         self.alpha_stance = 0.2
         self.alpha_degree = 0.2
         self.alpha_degree_stance = 0.2
-        self.initial_infected_pecentage: float = 0.05 # for 100 should change to 0.03
+        self.initial_infected_pecentage: float = 0.1 # for 100 should change to 0.03
         self.stance_threshold = 0.7
-
-        self.scenario_type = "Generic"  # Generic, Selective, or Generative
-        self.data_title = "localbiz" # VoluntaryVaccination , VerifyBeforeSharing , HealthMisinformationCorrection , ClimateFriendlyTravel
+        self.data_title = DATA_TITLE # VoluntaryVaccination , VerifyBeforeSharing , HealthMisinformationCorrection , ClimateFriendlyTravel
         selected = load_topic(DATA_FILE, self.data_title)
         self.topic = selected["title"]
         self.scenario_name = f"{self.topic}_{self.scenario_type}"
@@ -142,6 +142,8 @@ class LLMScenario(Scenario):
         self.sub_influence_msgs_embeddings = [text2embedding(x) for x in self.sub_influence_msgs]
         self.influence_param: float = 0.2
         self.stance_influence_rate: float = 0.2
+        # Fraction of the ACCEPT-sized stance shift applied on REJECT (same direction, smaller).
+        self.reject_influence_ratio: float = 0.25
         self.id_scenario: int = 0
         self.seed_size = 10
         #self.agents = AgentList(LLMSocialAgent)
@@ -171,6 +173,10 @@ class LLMScenario(Scenario):
         self.alpha_degree = 0.2
         self.observation_window = 5
         self.observation_beta = 3.0
+        # Observer transition (my estimates, to be calibrated): mean influence strength
+        # the observer assumes (true influence_prob is profile-dependent) and extra noise.
+        self.observer_mean_influence = 0.5
+        self.observer_transition_noise = 0.02
         self.resampling_threshold = 0.5
         #self.initialize_agents(self.agents)
 
@@ -199,7 +205,7 @@ class LLMScenario(Scenario):
         print(f"📊 Setting {num_seeds} seeds ({self.seed_size*100}%)...")
         negative_agents = [
             agent for agent in agents
-            if agent.stance < 0
+            if agent.stance > 0
             ]
         seed_agents = random.sample(negative_agents, num_seeds)
         for agent in seed_agents :

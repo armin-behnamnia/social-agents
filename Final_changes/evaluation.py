@@ -11,7 +11,7 @@ import pandas as pd
 # Explicit whitelist: never deepcopy framework/model/network references.
 STATE_FIELDS = (
     'preference_state isSeed profile stance stance_label support_probability post '
-    'internalized emerged embedding profile_embedding post_embedding internalized_embedding '
+    'internalized embedding profile_embedding post_embedding internalized_embedding '
     'exposure_count num_infected_neighbors new_adopter adoption_time degree '
     'degree_centrality betweenness_centrality message_id parent_message_id '
     'original_message_id received_message_history generated_message_history '
@@ -76,13 +76,11 @@ class EvaluationMixin:
                 adopted=int(a.preference_state == 1), is_seed=int(a.isSeed),
                 adoption_time=a.adoption_time, exposure_count=a.exposure_count,
                 profile=a.profile, post=a.post, message_id=a.message_id,
+                internalized=getattr(a, 'internalized', ''),
             ))
 
-    def agents_infection_stance_aware(self, agents, period, k=1):
-        return self._diffusion_step(agents, period, True)
-
     def agents_infection(self, agents, period, k=1):
-        return self._diffusion_step(agents, period, False)
+        return self._diffusion_step(agents, period)
 
     def public_features(self, agent):
         state = self.observer_states[agent.id]
@@ -96,7 +94,7 @@ class EvaluationMixin:
                     degree_centrality=agent.degree_centrality,
                     betweenness_centrality=agent.betweenness_centrality)
 
-    def _diffusion_step(self, agents, period, stance_aware):
+    def _diffusion_step(self, agents, period):
         for agent in agents:
             if not agent.isSeed:
                 self.candidate_snapshots.append(dict(
@@ -105,6 +103,8 @@ class EvaluationMixin:
                     agent_id=agent.id, **self.public_features(agent)))
         # Snapshot BEFORE any exposure: newly adopted nodes wait until next period.
         sources = [a for a in agents if a.preference_state == 1 and a.post and str(a.post).strip()]
+        # Nodes that already accepted in an earlier period are not exposed again.
+        adopted_before = {a.id for a in agents if a.preference_state == 1}
         for a in agents:
             a.new_adopter = 0
             a.num_infected_neighbors = sum(
@@ -112,10 +112,17 @@ class EvaluationMixin:
                 for _, n in a.network.get_neighbors(a)
             )
         for source in sources:
+            base_post, base_emb = source.post, source.post_embedding
             for _, neighbor_id in source.network.get_neighbors(source):
                 target = agents.get_agent(neighbor_id)
                 if target is None or target.id == source.id or target.isSeed:
                     continue
+                if target.id in adopted_before:
+                    continue
+                # Only seeds follow the scenario strategy (per target);
+                # other nodes relay the post derived from their own internalized text.
+                if source.isSeed:
+                    self.select_post(source, target)
                 event_id = f'{self.run_id}:{len(self.diffusion_events)}'
                 # This record is frozen BEFORE the target receives the current message.
                 pre = dict(
@@ -141,8 +148,7 @@ class EvaluationMixin:
                 was_adopted = target.preference_state == 1
                 target.new_adopter = 0
                 target.exposure_count += 1
-                fn = target.infection_stance_aware if stance_aware else target.infection
-                fn(agents, period, self.diffusion_events, self.message_events, source)
+                target.infection(agents, period, self.diffusion_events, self.message_events, source)
                 if len(self.diffusion_events) == before:
                     target.exposure_count -= 1
                     continue
@@ -165,7 +171,7 @@ class EvaluationMixin:
                 message['parent_message_id'] = source.message_id
                 message['original_message_id'] = source.original_message_id or source.message_id
                 # Rejections without generation must not masquerade as new narrative nodes.
-                if not event['adopted'] and not stance_aware:
+                if not event['adopted']:
                     message['message_id'] = None
                     message['generated_post'] = None
                     message['embedding_generated_post'] = None
@@ -181,7 +187,7 @@ class EvaluationMixin:
                     target.accept = source.post
                     target.accept_embedding = source.post_embedding
                 # Observer sees public traces only, for both acceptances AND rejections.
-                self.update_observer(target, period)
+                self.update_observer(target, period, source=source, accepted=bool(event['adopted']))
                 event['estimated_stance_before'] = pre['estimated_stance_before']
                 event['estimated_stance_after'] = self.observer_states[target.id]['estimated_stance']
                 self.observable_events.append(pre)
@@ -197,14 +203,27 @@ class EvaluationMixin:
                     target_stance_after=event['target_stance_after'],
                     target_delta_stance=event['target_delta_stance'], adopted=event['adopted'],
                 ))
+            # Restore the seed's base post after per-target strategy overrides.
+            source.post, source.post_embedding = base_post, base_emb
         self.record_trajectory(agents, period)
         self._period_index += 1
         # Observation continues for the configured horizon, even after saturation.
         return False
 
+    def output_folder(self, method):
+        """data/evaluation/<method>_<scenario_type>_<data_title>/<pair_id>
+        A unique pair folder prevents overwrites between repetitions."""
+        scenario_type = str(getattr(self.scenario, 'scenario_type', 'unknown'))
+        data_title = str(getattr(self.scenario, 'data_title', 'unknown'))
+        label = '_'.join(self._safe(x) for x in (method or self.condition, scenario_type, data_title))
+        return os.path.join('data', 'evaluation', label, self.pair_id)
+
+    @staticmethod
+    def _safe(text):
+        return ''.join(c if (c.isalnum() or c in '-.') else '-' for c in str(text)).strip('-')
+
     def save_diffusion_events(self, method, k):
-        # A unique pair folder prevents overwrites between repetitions.
-        folder = os.path.join('data', 'evaluation', self.pair_id, self.condition)
+        folder = self.output_folder(method)
         os.makedirs(folder, exist_ok=True)
         tables = dict(diffusion_events=self.diffusion_events, message_events=self.message_events,
                       observable_preinteraction=self.observable_events,
@@ -230,7 +249,9 @@ class EvaluationMixin:
         metrics['final_adopted'] = metrics['seed_count'] + metrics['new_adopters']
         with open(os.path.join(folder, 'metrics.json'), 'w', encoding='utf-8') as out:
             json.dump(metrics, out, indent=2)
-        manifest = dict(pair_id=self.pair_id, condition=self.condition,
+        manifest = dict(pair_id=self.pair_id, condition=self.condition, method=method,
+                        scenario_type=getattr(self.scenario, 'scenario_type', None),
+                        data_title=getattr(self.scenario, 'data_title', None),
                         seed_ids=[i for i, s in self._initial_agents.items() if s.get('isSeed')],
                         random_seed=getattr(self.scenario, 'random_seed', None),
                         observation_periods=self._period_index,

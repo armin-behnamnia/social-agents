@@ -139,19 +139,6 @@ class LLMModel(Model):
         self.calculate_degree_centrality()
         self.calculate_betweenness_centrality()
 
-    def run_stance_aware(self, method="", k=1):
-        for period in self.iterator(self.scenario.period_num):
-            #print(f"period: {period}",flush=True)
-            #print("stance_aware infection is opend"); #breakpoint()
-            self.environment.agents_infection_stance_aware(self.agents, period, k)
-            #print("stance_aware infection is closed")
-            self.environment.calc_population_infection_state(self.agents)
-            self.data_collector.collect(period)
-        self.data_collector.save()
-        self.environment.save_information_analysis(self.agents, method, k)
-        self.environment.save_diffusion_events(method, k)
-        print("Simulation finished.", flush=True)
-
     def run_exposure(self, method="", k=1):
         print("self.scenario.period_num: ", self.scenario.period_num)
         for period in self.iterator(self.scenario.period_num):
@@ -168,10 +155,8 @@ class LLMModel(Model):
     def run(self, method=""):
         self.initialisation()
         self.environment.capture_initial_state(self.agents)
-        if getattr(self.scenario, 'evaluation_mode', 'reference') == 'reference':
-            self.environment.begin_condition(self.agents, 'reference')
-            self.run_exposure(method='reference', k=1)
-            return
+        self.environment.begin_condition(self.agents, 'reference')
+        self.run_exposure(method='reference', k=1)
         #self.environment.begin_condition(self.agents, 'stance_aware')
         #self.run_stance_aware(method='stance_aware', k=3)
         #self.environment.begin_condition(self.agents, 'stance_less')
@@ -202,24 +187,24 @@ class LLMModel(Model):
 
     def select_seed_agents(self):
 
-        negative_stance_agents = [agent for agent in self.agents if agent.stance < 0]
+        positive_stance_agents = [agent for agent in self.agents if agent.stance > 0]
 
         seed_size = (
             self.scenario.seed_size
         )
 
         if len(
-            negative_stance_agents
+            positive_stance_agents
         ) < seed_size:
 
             raise ValueError(
-                "Not enough negative-stance "
+                "Not enough positive-stance "
                 "agents to initialize the "
                 "requested seed set."
             )
 
         self.seed_set = random.sample(
-            negative_stance_agents,
+            positive_stance_agents,
             seed_size
         )
 

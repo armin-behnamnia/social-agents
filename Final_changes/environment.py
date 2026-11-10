@@ -6,6 +6,7 @@ from Melodie import AgentList
 from source.agent import LLMSocialAgent
 from source.scenario import LLMScenario
 from source.tools import text2embedding
+from source.LLM_module import goal_promotion
 import random
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -86,19 +87,18 @@ class LLMEnvironment(EvaluationMixin, Environment):
             "degree_centrality": agent.degree_centrality,
             "betweenness_centrality": agent.betweenness_centrality
         }
-    def update_observer(self, agent, period):
+    def update_observer(self, agent, period, source=None, accepted=None):
+        """One exposure: (1) weight particles by the observed accept/reject given the
+        stance BEFORE the exposure, (2) move particles toward the source stance
+        (Design B; REJECT uses reject_influence_ratio). The source stance is the true
+        value for seeds (known by construction) and the observer estimate otherwise.
+        The observer never reads agent.stance of the target."""
         observer_state = self.observer_states[agent.id]
         observation = self.build_observation(agent)
         particles = observer_state["particles"]
         weights = observer_state["weights"]
         # --------------------------------------------------
-        # 1. Prediction
-        # --------------------------------------------------
-        process_noise = self.scenario.process_noise
-        particles = (particles+ self.observer_rng.normal(0,process_noise,size=len(particles)))
-        particles = np.clip(particles,self.scenario.inference_state_min,self.scenario.inference_state_max)
-        # --------------------------------------------------
-        # 2. Observation likelihood
+        # 1. Observation likelihood (on pre-exposure stance)
         # --------------------------------------------------
         likelihoods = self.calculate_observation_likelihood(particles,observation) 
         # --------------------------------------------------
@@ -118,6 +118,24 @@ class LLMEnvironment(EvaluationMixin, Environment):
         # --------------------------------------------------
         # 4. Estimate posterior
         # --------------------------------------------------
+        # --------------------------------------------------
+        # 3b. Transition (deterministic Design B move + small noise)
+        # --------------------------------------------------
+        if source is not None and accepted is not None:
+            if source.isSeed:
+                src = float(source.stance)
+                src_known = True
+            else:
+                src = self.observer_states[source.id]['estimated_stance']
+                src_known = False
+            ratio = 1.0 if accepted else float(getattr(self.scenario, 'reject_influence_ratio', 0.25))
+            gain = (ratio * float(getattr(self.scenario, 'observer_mean_influence', 0.5))
+                    * self.scenario.stance_influence_rate)
+            particles = particles + gain * (src - particles)
+            observer_state['source_known'] = src_known
+        noise = float(getattr(self.scenario, 'observer_transition_noise', 0.02))
+        particles = particles + self.observer_rng.normal(0, noise, size=len(particles))
+        particles = np.clip(particles,self.scenario.inference_state_min,self.scenario.inference_state_max)
         estimated_stance = np.average(particles,weights=weights)
         variance = np.average((particles - estimated_stance) ** 2,weights=weights)
         # --------------------------------------------------
@@ -140,21 +158,8 @@ class LLMEnvironment(EvaluationMixin, Environment):
 
     def calculate_observation_likelihood(self,particles,observation):
         behavior_likelihood = (self.behavior_likelihood(particles,observation))
-        message_likelihood = (self.message_likelihood(particles,observation))
-        history_likelihood = (self.history_likelihood(particles,observation))
-        likelihood = (behavior_likelihood* message_likelihood* history_likelihood)
-        return np.maximum(likelihood, 1e-12)
-
-    def history_likelihood(self, particles, observation):
-        interactions = observation.get("interactions", [])
-        if not interactions:
-            return np.ones(len(particles), dtype=float)
-        return np.ones(len(particles), dtype=float)
-    def message_likelihood(self, particles, observation):
-        messages = observation.get("messages", [])
-        if not messages:
-            return np.ones(len(particles), dtype=float)
-        return np.ones(len(particles), dtype=float)
+        # message/history likelihoods were constant 1 (no-ops) and are removed.
+        return np.maximum(behavior_likelihood, 1e-12)
 
     def behavior_likelihood(self, particles, observation):
         """
@@ -184,8 +189,10 @@ class LLMEnvironment(EvaluationMixin, Environment):
     def selective_post(self, messages, messages_embeddings, target_agent):
         similarities = []
         for embedding in messages_embeddings:
-            similarity = cosine_similarity(embedding, target_agent.profile_embedding)
-        similarities.append(similarity)
+            similarity = cosine_similarity(
+                np.asarray(embedding).reshape(1, -1),
+                np.asarray(target_agent.profile_embedding).reshape(1, -1))[0, 0]
+            similarities.append(similarity)
         best_idx = similarities.index(max(similarities))
         return messages[best_idx], messages_embeddings[best_idx]
 
@@ -193,8 +200,12 @@ class LLMEnvironment(EvaluationMixin, Environment):
         if self.scenario.scenario_type == "Selective":
             source_agent.post, source_agent.post_embedding  = self.selective_post(self.scenario.sub_influence_msgs, self.scenario.sub_influence_msgs_embeddings, target_agent )
         elif self.scenario.scenario_type == "Generative":
-            source_agent.post = goal_promotion(target_agent.profile)
-            source_agent.post_embedding = self.text2embedding(source_agent.post)
+            source_agent.post = goal_promotion(
+                target_agent.profile,
+                self.scenario.data_title,
+                self.scenario.sub_influence_msgs,
+                self.scenario.general_influence_msg)
+            source_agent.post_embedding = text2embedding(source_agent.post)
         elif self.scenario.scenario_type == "RL_Generative":
             print("How the post is selected or spread, and how feedback is received, should be clearly defined.")
     def _legacy_agents_infection_stance_aware(self, agents: "AgentList[LLMSocialAgent]", period: int, k=1): #تا زمانی که همه یک دور آلوده نشده‌اند ادامه بده.مناسب موقعی که براساس پیام باقیمانده در مغز الوده گی منتشر میشود
@@ -251,10 +262,10 @@ class LLMEnvironment(EvaluationMixin, Environment):
         if not hasattr(self, "_diffusion_seed_ids"):
             self._diffusion_seed_ids = {
                 a.id for a in agents
-                if a.preference_state == 1 and a.stance < 0
+                if a.preference_state == 1 and a.stance > 0
             }
 
-        # Initial seeds require negative stance.
+        # Initial seeds require positive stance.
         # Subsequently infected/emerged nodes do not.
         # This snapshot prevents same-period cascading.
         current_sources = [
@@ -334,7 +345,7 @@ class LLMEnvironment(EvaluationMixin, Environment):
         #print("calc_population_infection")
 
     def save_information_analysis(self, agents: "AgentList[LLMSocialAgent]", method, k=1):
-        output_dir = os.path.join('data', 'evaluation', self.pair_id, self.condition)
+        output_dir = self.output_folder(method)
         os.makedirs(output_dir, exist_ok=True)
 
         filename = os.path.join(
