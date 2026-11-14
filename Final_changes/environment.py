@@ -90,8 +90,7 @@ class LLMEnvironment(EvaluationMixin, Environment):
     def update_observer(self, agent, period, source=None, accepted=None):
         """One exposure: (1) weight particles by the observed accept/reject given the
         stance BEFORE the exposure, (2) move particles toward the source stance
-        (Design B; REJECT uses reject_influence_ratio). The source stance is the true
-        value for seeds (known by construction) and the observer estimate otherwise.
+        (Design B; REJECT uses reject_influence_ratio). The source stance is always the observer estimate.
         The observer never reads agent.stance of the target."""
         observer_state = self.observer_states[agent.id]
         observation = self.build_observation(agent)
@@ -122,12 +121,8 @@ class LLMEnvironment(EvaluationMixin, Environment):
         # 3b. Transition (deterministic Design B move + small noise)
         # --------------------------------------------------
         if source is not None and accepted is not None:
-            if source.isSeed:
-                src = float(source.stance)
-                src_known = True
-            else:
-                src = self.observer_states[source.id]['estimated_stance']
-                src_known = False
+            src = self.observer_states[source.id]['estimated_stance']
+            src_known = False
             ratio = 1.0 if accepted else float(getattr(self.scenario, 'reject_influence_ratio', 0.25))
             gain = (ratio * float(getattr(self.scenario, 'observer_mean_influence', 0.5))
                     * self.scenario.stance_influence_rate)

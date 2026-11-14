@@ -159,8 +159,9 @@ class LLMModel(Model):
         self.run_exposure(method='reference', k=1)
         #self.environment.begin_condition(self.agents, 'stance_aware')
         #self.run_stance_aware(method='stance_aware', k=3)
-        #self.environment.begin_condition(self.agents, 'stance_less')
-        #self.run_exposure(method='stance_less', k=1)
+        # Same seeded state and RNG, accept prompt without the target's stance.
+        self.environment.begin_condition(self.agents, 'stance_less')
+        self.run_exposure(method='stance_less', k=1)
           
     def load_agent_profiles(self):
         user_profiles = []
@@ -207,6 +208,24 @@ class LLMModel(Model):
             positive_stance_agents,
             seed_size
         )
+        # Hidden targeted source: one seed that exposes only negative-stance neighbors.
+        # The id is written only to the PRIVATE trajectory table, never to manifest.json.
+        if getattr(self.scenario, 'covert_source', False):
+            seed_ids = {a.id for a in self.seed_set}
+
+            def eligible(seed):
+                n = 0
+                for _, nid in seed.network.get_neighbors(seed):
+                    t = self.agents.get_agent(nid)
+                    if t is not None and t.id not in seed_ids and t.stance < 0:
+                        n += 1
+                return n
+            counts = {a.id: eligible(a) for a in self.seed_set}
+            best = max(self.seed_set, key=lambda a: counts[a.id])
+            if counts[best.id] > 0:
+                best.is_covert_source = True
+            else:
+                print('WARNING: no seed has a negative-stance non-seed neighbor; covert source disabled.')
 
     def initialize_seed_messages(self):
         for seed in self.seed_set:

@@ -99,7 +99,7 @@ class LLMScenario(Scenario):
         self._scenario_name = value
 
     def setup(self):
-        self.debug = False
+        self.debug = True
         self.evaluation_mode = 'reference'  # single unified dynamics
         self.forecast_horizons = [1, 2]
         self.top_k = 10
@@ -108,7 +108,8 @@ class LLMScenario(Scenario):
         #self.stance_topic = 'Taking precautions such as ventilation, well-fitting masks in crowded indoor spaces, and staying home when sick is beneficial for reducing COVID-19 transmission.'
         self.text_stance_observer = False  # enable explicit topic-anchored LLM estimates
         self.random_seed = int(os.environ.get('LSD_RANDOM_SEED', 5)) # Change between independent repetitions.
-        self.period_num: int = 5
+        self.period_num: int = int(os.environ.get('LSD_PERIODS', 10))  # longer horizon
+        self.covert_source = os.environ.get('LSD_COVERT_SOURCE', '1') == '1'
         self.run_num: int = 1
         self.agent_num: int = 100
         # Inference
@@ -118,7 +119,7 @@ class LLMScenario(Scenario):
         self.process_noise = 0.08
         self.adoption_threshold = 0.0
         self.network_type: str = "erdos_renyi_graph"
-        self.network_param_p: float = 0.05
+        self.network_param_p: float = float(os.environ.get('LSD_NETWORK_P', 0.03))  # sparser than 0.05
         self.social_influence_param: float = 0.33
         self.content_influence_param: float = 0.34
         self.network_influence_param: float = 0.33

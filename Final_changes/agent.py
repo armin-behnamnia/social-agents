@@ -53,6 +53,9 @@ class LLMSocialAgent(NetworkAgent):
 
         self.preference_state: int = 0
         self.isSeed: bool = False
+        # Hidden simulator role; never exposed to the observer, prompts, or public tables.
+        self.is_covert_source: bool = False
+        self.stance_prompt: bool = True  # False under the 'stance_less' condition
 
         # ----------------------------------------------------------
         # Static agent context
@@ -292,7 +295,8 @@ class LLMSocialAgent(NetworkAgent):
         result = accept_message(
             source_post, self.profile,
             [row for row in self.decision_history if row['topic'] == topic_key],
-            topic_exposure_count=encounter, decision_mode=mode)
+            topic_exposure_count=encounter, decision_mode=mode,
+            stance=target_stance_before if self.stance_prompt else None)
         # Accept structured responses without converting the whole dict to a label.
         # Keep legacy label-only providers compatible; do not invent a rationale.
         if isinstance(result, dict):

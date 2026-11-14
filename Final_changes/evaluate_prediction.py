@@ -87,6 +87,19 @@ def evaluate(data, out, k=10):
         frame['predictor'] = name
         predictions.append(frame)
         report[name] = score(frame, p, k)
+    # Trivial baselines on the same held-out rows.
+    test_frame = data.iloc[test].copy()
+    base_rate = float(data.iloc[train].label.mean())
+    report['base_rate_train'] = base_rate
+    report['baseline_base_rate'] = score(test_frame, np.full(len(test_frame), base_rate), k)
+    if 'exposures_before' in test_frame:
+        # Exposure rule: train-set label rate for never-exposed vs already-exposed agents.
+        seen = data.iloc[train].exposures_before.fillna(0) > 0
+        rates = [float(data.iloc[train].label[~seen].mean()) if (~seen).any() else base_rate,
+                 float(data.iloc[train].label[seen].mean()) if seen.any() else base_rate]
+        flag = (test_frame.exposures_before.fillna(0) > 0).astype(int).to_numpy()
+        report['baseline_exposure_rule'] = score(test_frame, np.array(rates)[flag], k)
+    report['test_positive_rate'] = float(test_frame.label.mean())
     # Paired bootstrap resamples held-out pair groups, not individual events.
     rng = np.random.default_rng(2026)
     a, b = predictions

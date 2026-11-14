@@ -10,7 +10,7 @@ import pandas as pd
 
 # Explicit whitelist: never deepcopy framework/model/network references.
 STATE_FIELDS = (
-    'preference_state isSeed profile stance stance_label support_probability post '
+    'preference_state isSeed is_covert_source profile stance stance_label support_probability post '
     'internalized embedding profile_embedding post_embedding internalized_embedding '
     'exposure_count num_infected_neighbors new_adopter adoption_time degree '
     'degree_centrality betweenness_centrality message_id parent_message_id '
@@ -74,6 +74,7 @@ class EvaluationMixin:
                 estimated_stance=state['estimated_stance'],
                 state_variance=state['state_variance'],
                 adopted=int(a.preference_state == 1), is_seed=int(a.isSeed),
+                is_covert_source=int(a.is_covert_source),
                 adoption_time=a.adoption_time, exposure_count=a.exposure_count,
                 profile=a.profile, post=a.post, message_id=a.message_id,
                 internalized=getattr(a, 'internalized', ''),
@@ -119,6 +120,10 @@ class EvaluationMixin:
                     continue
                 if target.id in adopted_before:
                     continue
+                # Hidden targeted source: only exposes true-negative neighbors.
+                if source.is_covert_source and target.stance >= 0:
+                    continue
+                target.stance_prompt = self.condition != 'stance_less'
                 # Only seeds follow the scenario strategy (per target);
                 # other nodes relay the post derived from their own internalized text.
                 if source.isSeed:
@@ -253,6 +258,7 @@ class EvaluationMixin:
                         scenario_type=getattr(self.scenario, 'scenario_type', None),
                         data_title=getattr(self.scenario, 'data_title', None),
                         seed_ids=[i for i, s in self._initial_agents.items() if s.get('isSeed')],
+                        covert_source_enabled=bool(getattr(self.scenario, 'covert_source', False)),
                         random_seed=getattr(self.scenario, 'random_seed', None),
                         observation_periods=self._period_index,
                         stance_topic=getattr(self.scenario, 'stance_topic', None),
